@@ -52,19 +52,30 @@ class TemporalEngine:
         self.last_down_ask = 0.0
         
         self.executions = []
+        self.last_status_time = 0
         
-    def log_exec(self, msg: str):
-        # 1. UI Logging (Time Only)
+    def log_exec(self, msg: str, detail: str = ""):
+        # 1. UI Logging (Simplified for terminal display)
         ts_ui = time.strftime("%H:%M:%S")
         self.executions.append(f"[{ts_ui}] {msg}")
         if len(self.executions) > 10:
             self.executions.pop(0)
             
-        # 2. Persistent File Logging (Date & Time)
+        # 2. Persistent File Logging (Rich context for auditing)
         try:
             ts_file = time.strftime("%Y-%m-%d %H:%M:%S")
+            win_short = self.current_window_slug[-10:] if self.current_window_slug else "INIT"
+            
+            # Formulating the market state string
+            sum_ask = round(self.last_up_ask + self.last_down_ask, 3)
+            state = f"| {win_short} | T-{self.t_minus:03}s | U:{self.last_up_ask:.2f} D:{self.last_down_ask:.2f} Σ:{sum_ask:.2f}"
+            
+            full_msg = f"[{ts_file}] {state} | {msg}"
+            if detail:
+                full_msg += f" | {detail}"
+                
             with open("ats_execution.log", "a", encoding="utf-8") as f:
-                f.write(f"[{ts_file}] {msg}\n")
+                f.write(full_msg + "\n")
         except Exception:
             pass
 
@@ -99,6 +110,12 @@ class TemporalEngine:
             window_end = self.window_start_epoch + 300
             self.t_minus = window_end - current_epoch
             
+            # Periodic Market Status Log (Every 30 seconds)
+            if current_epoch - self.last_status_time >= 30:
+                status_msg = f"HEARTBEAT: Monitoring window {self.current_window_slug}"
+                self.log_exec(status_msg)
+                self.last_status_time = current_epoch
+
             # Check the queue
             try:
                 # Process all available events without blocking
