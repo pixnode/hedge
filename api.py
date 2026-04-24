@@ -25,9 +25,9 @@ def generate_creds():
         creds = client.create_or_derive_api_creds()
         
         print("\n[!] BERHASIL! Silakan salin kredensial ini ke .env Anda:\n")
-        print(f"POLY_API_KEY={creds.get('apiKey')}")
-        print(f"POLY_API_SECRET={creds.get('secret')}")
-        print(f"POLY_API_PASSPHRASE={creds.get('passphrase')}")
+        print(f"POLY_API_KEY={creds.api_key}")
+        print(f"POLY_API_SECRET={creds.api_secret}")
+        print(f"POLY_API_PASSPHRASE={creds.api_passphrase}")
         print("\n" + "="*50)
         
     except Exception as e:
