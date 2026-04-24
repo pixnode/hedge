@@ -56,10 +56,19 @@ class TemporalEngine:
         self.executions = []
         
     def log_exec(self, msg: str):
-        ts = time.strftime("%H:%M:%S")
-        self.executions.append(f"[{ts}] {msg}")
+        # 1. UI Logging (Time Only)
+        ts_ui = time.strftime("%H:%M:%S")
+        self.executions.append(f"[{ts_ui}] {msg}")
         if len(self.executions) > 10:
             self.executions.pop(0)
+            
+        # 2. Persistent File Logging (Date & Time)
+        try:
+            ts_file = time.strftime("%Y-%m-%d %H:%M:%S")
+            with open("ats_execution.log", "a", encoding="utf-8") as f:
+                f.write(f"[{ts_file}] {msg}\n")
+        except Exception:
+            pass
 
     async def run(self):
         while True:
