@@ -46,11 +46,10 @@ class UI:
     def generate_inventory(self):
         up_box = "[X]" if self.engine.has_up else "[ ]"
         down_box = "[X]" if self.engine.has_down else "[ ]"
-        total_cost = self.engine.up_invested_usd + self.engine.down_invested_usd
         
         content = f"{up_box} UP FILLED\n"
         content += f"{down_box} DOWN FILLED\n\n"
-        content += f"💰 COST: ${total_cost:.2f}"
+        content += "READY TO SNIPE" if not (self.engine.has_up and self.engine.has_down) else "POSITION COMPLETE"
         return Panel(content, title="INVENTORY")
         
     def generate_footer(self):

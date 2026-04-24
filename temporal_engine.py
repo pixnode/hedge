@@ -44,8 +44,6 @@ class TemporalEngine:
         self.down_token = ""
         
         # Inventory State
-        self.up_invested_usd = 0.0
-        self.down_invested_usd = 0.0
         self.has_up = False
         self.has_down = False
         
@@ -80,8 +78,6 @@ class TemporalEngine:
                 self.current_window_slug = f"btc-updown-5m-{self.window_start_epoch}"
                 
                 # Reset inventory state
-                self.up_invested_usd = 0.0
-                self.down_invested_usd = 0.0
                 self.has_up = False
                 self.has_down = False
                 self.executions.clear()
@@ -119,41 +115,35 @@ class TemporalEngine:
                         
                             # Check UP Sniper
                             if not self.has_up and self.last_up_ask <= config.TARGET_MAX_ODDS:
-                                # Evaluasi Sizing USD
-                                if (self.up_invested_usd + config.BASE_TRADE_USD) <= config.MAX_POSITION_USD:
-                                    size = round(config.BASE_TRADE_USD / self.last_up_ask, 2)
-                                    self.log_exec(f"⚡ ORDER SENT: BUY UP @ {self.last_up_ask} (Limit)")
-                                    self.has_up = True # Optimistic lock
-                                    try:
-                                        res = await self.executor.execute(self.up_token, "UP", self.last_up_ask, size, config)
-                                        if res.get("status") == "FILLED":
-                                            self.up_invested_usd += (size * res.get("filled_price", self.last_up_ask))
-                                            self.log_exec(f"✅ FILLED: UP @ {res.get('filled_price')} | Tx: {res.get('tx_hash')[:10]}...")
-                                        else:
-                                            self.has_up = False # Release lock if failed
-                                            self.log_exec(f"❌ FAILED: UP Order Failed")
-                                    except Exception as e:
-                                        self.log_exec(f"❌ ERROR: UP execute failed - {str(e)}")
-                                        self.has_up = False
+                                size = config.BASE_SHARES
+                                self.log_exec(f"⚡ ORDER SENT: BUY {size} UP @ {self.last_up_ask}")
+                                self.has_up = True # Optimistic lock
+                                try:
+                                    res = await self.executor.execute(self.up_token, "UP", self.last_up_ask, size, config)
+                                    if res.get("status") == "FILLED":
+                                        self.log_exec(f"✅ FILLED: UP @ {res.get('filled_price')} | Tx: {res.get('tx_hash')[:10]}...")
+                                    else:
+                                        self.has_up = False # Release lock if failed
+                                        self.log_exec(f"❌ FAILED: UP Order Failed")
+                                except Exception as e:
+                                    self.log_exec(f"❌ ERROR: UP execute failed - {str(e)}")
+                                    self.has_up = False
 
                             # Check DOWN Sniper
                             if not self.has_down and self.last_down_ask <= config.TARGET_MAX_ODDS:
-                                # Evaluasi Sizing USD
-                                if (self.down_invested_usd + config.BASE_TRADE_USD) <= config.MAX_POSITION_USD:
-                                    size = round(config.BASE_TRADE_USD / self.last_down_ask, 2)
-                                    self.log_exec(f"⚡ ORDER SENT: BUY DOWN @ {self.last_down_ask} (Limit)")
-                                    self.has_down = True # Optimistic lock
-                                    try:
-                                        res = await self.executor.execute(self.down_token, "DOWN", self.last_down_ask, size, config)
-                                        if res.get("status") == "FILLED":
-                                            self.down_invested_usd += (size * res.get("filled_price", self.last_down_ask))
-                                            self.log_exec(f"✅ FILLED: DOWN @ {res.get('filled_price')} | Tx: {res.get('tx_hash')[:10]}...")
-                                        else:
-                                            self.has_down = False
-                                            self.log_exec(f"❌ FAILED: DOWN Order Failed")
-                                    except Exception as e:
-                                        self.log_exec(f"❌ ERROR: DOWN execute failed - {str(e)}")
+                                size = config.BASE_SHARES
+                                self.log_exec(f"⚡ ORDER SENT: BUY {size} DOWN @ {self.last_down_ask}")
+                                self.has_down = True # Optimistic lock
+                                try:
+                                    res = await self.executor.execute(self.down_token, "DOWN", self.last_down_ask, size, config)
+                                    if res.get("status") == "FILLED":
+                                        self.log_exec(f"✅ FILLED: DOWN @ {res.get('filled_price')} | Tx: {res.get('tx_hash')[:10]}...")
+                                    else:
                                         self.has_down = False
+                                        self.log_exec(f"❌ FAILED: DOWN Order Failed")
+                                except Exception as e:
+                                    self.log_exec(f"❌ ERROR: DOWN execute failed - {str(e)}")
+                                    self.has_down = False
 
             except asyncio.QueueEmpty:
                 pass

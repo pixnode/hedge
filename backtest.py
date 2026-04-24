@@ -19,11 +19,8 @@ class MockExecutor(OrderExecutor):
     
     async def execute(self, token_id: str, side: str, current_ask: float, size: float, config_obj):
         await asyncio.sleep(0.001)  # Simulate network latency
-        limit_price = round(current_ask + config_obj.ABSOLUTE_SLIPPAGE, 3)
-        # Simulate slight slippage in favor or against, mostly against
-        filled_price = current_ask + random.uniform(0.001, config_obj.ABSOLUTE_SLIPPAGE)
+        filled_price = current_ask # No slippage simulation as requested
         
-        self.total_slippage += (filled_price - current_ask) * size
         self.trades += 1
         
         return {
@@ -55,8 +52,6 @@ async def force_1000_trades(engine: TemporalEngine, executor: MockExecutor):
         if engine.has_up and engine.has_down:
             engine.has_up = False
             engine.has_down = False
-            engine.up_invested_usd = 0.0
-            engine.down_invested_usd = 0.0
             
         await asyncio.sleep(0.05)
         
@@ -67,7 +62,6 @@ async def force_1000_trades(engine: TemporalEngine, executor: MockExecutor):
     print("="*45)
     print(f"Total Executed Trades : {executor.trades}")
     print(f"Win Rate Assumption   : 50.0% (Fully Hedged Arb)")
-    print(f"Total Slippage Paid   : ${executor.total_slippage:.2f} USD")
     print(f"Execution Time        : {(end_time - start_time):.2f} seconds")
     print("="*45 + "\n")
     

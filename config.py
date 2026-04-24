@@ -21,14 +21,12 @@ class Config:
     PAPER_TRADING_MODE: bool = os.getenv("PAPER_TRADING_MODE", "False").lower() in ("true", "1", "yes")
     TARGET_MAX_ODDS: float = float(os.getenv("TARGET_MAX_ODDS", "0.40"))
     MAX_TOTAL_HEDGE_COST: float = float(os.getenv("MAX_TOTAL_HEDGE_COST", "0.85"))
-    ABSOLUTE_SLIPPAGE: float = float(os.getenv("ABSOLUTE_SLIPPAGE", "0.04"))
     
     # Temporal Constraints (in seconds, Cast to int)
     GOLDEN_WINDOW_START_SEC: int = int(os.getenv("GOLDEN_WINDOW_START_SEC", "300"))
     GOLDEN_WINDOW_END_SEC: int = int(os.getenv("GOLDEN_WINDOW_END_SEC", "20"))
     
     # Position Sizing (Cast to float)
-    BASE_TRADE_USD: float = float(os.getenv("BASE_TRADE_USD", "2.0"))
-    MAX_POSITION_USD: float = float(os.getenv("MAX_POSITION_USD", "2.5"))
+    BASE_SHARES: float = float(os.getenv("BASE_SHARES", "1.0"))
 
 config = Config()

@@ -53,7 +53,8 @@ class OrderExecutor:
             return {"status": "FAILED", "error": str(e)}
 
     async def execute(self, token_id: str, side: str, current_ask: float, size: float, config: Config):
-        limit_price = round(current_ask + config.ABSOLUTE_SLIPPAGE, 3)
+        # Removal of slippage: Using current_ask as the limit price directly
+        limit_price = round(current_ask, 3)
         if limit_price > 0.99:
             limit_price = 0.99
             
