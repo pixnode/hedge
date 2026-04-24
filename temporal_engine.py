@@ -161,6 +161,12 @@ class TemporalEngine:
                                 except Exception as e:
                                     self.log_exec(f"❌ ERROR: DOWN execute failed - {str(e)}")
                                     self.has_down = False
+                        else:
+                            # Debug: Log why it's not trading if at least one is in sniping zone
+                            if self.last_up_ask <= config.TARGET_MAX_ODDS or self.last_down_ask <= config.TARGET_MAX_ODDS:
+                                if self.last_up_ask > 0 and self.last_down_ask > 0:
+                                    total = round(self.last_up_ask + self.last_down_ask, 3)
+                                    self.log_exec(f"⚠️ GATE REJECTED: Total cost too high ({total} > {config.MAX_TOTAL_HEDGE_COST})")
 
             except asyncio.QueueEmpty:
                 pass
