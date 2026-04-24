@@ -110,8 +110,8 @@ class TemporalEngine:
             window_end = self.window_start_epoch + 300
             self.t_minus = window_end - current_epoch
             
-            # Periodic Market Status Log (Every 30 seconds)
-            if current_epoch - self.last_status_time >= 30:
+            # Periodic Market Status Log (Every 1 second)
+            if current_epoch - self.last_status_time >= 1:
                 status_msg = f"HEARTBEAT: Monitoring window {self.current_window_slug}"
                 self.log_exec(status_msg)
                 self.last_status_time = current_epoch
