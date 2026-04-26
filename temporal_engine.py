@@ -84,14 +84,12 @@ class TemporalEngine:
             logger.error(f"Telegram Failed: {e}")
 
     async def run(self):
-        self.log_exec("🚀 Warrior Engine Active - Listening for Events...")
+        self.log_exec("🚀 Warrior Engine Active - Scenario B")
         while True:
             try:
-                # 1. Wait for data event (Zero Latency)
-                event: OrderBookEvent = await self.queue.get()
                 current_epoch = int(time.time())
                 
-                # 2. Window Management Logic
+                # 1. Window Management Logic (Moved outside to prevent deadlock)
                 new_window_start = current_epoch - (current_epoch % 300)
                 if new_window_start != self.window_start_epoch:
                     self.window_start_epoch = new_window_start
@@ -110,11 +108,19 @@ class TemporalEngine:
                             await self.feed.update_subscription(self.up_token, self.down_token)
                     except Exception as e:
                         self.log_exec(f"⚠️ Token Error: {e}")
+                        await asyncio.sleep(5)
                         continue
 
-                # 3. Temporal State
+                # 2. Update T-Minus immediately
                 window_end = self.window_start_epoch + 300
                 self.t_minus = window_end - current_epoch
+
+                # 3. Wait for data event with timeout (so we can still update T-Minus/Window)
+                try:
+                    event: OrderBookEvent = await asyncio.wait_for(self.queue.get(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    continue
+                
                 self.last_up_ask = event.up_ask
                 self.last_down_ask = event.down_ask
                 total_cost = self.last_up_ask + self.last_down_ask
