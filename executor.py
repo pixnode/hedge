@@ -40,30 +40,39 @@ class OrderExecutor:
         if not self.client:
             return {"status": "FAILED", "error": "ClobClient not initialized"}
         try:
+            # Format OrderArgs sesuai standar terbaru py_clob_client
             order_args = {
                 "token_id": token_id,
-                "price": limit_price,
-                "size": size,
-                "side": "BUY" # Side is always BUY for taking long exposure on either UP or DOWN token
+                "price": float(limit_price),
+                "size": float(size),
+                "side": "BUY"
             }
+            
+            # Post order
             resp = self.client.create_and_post_order(order_args)
             
-            if resp and resp.get("success"):
+            # Debugging: Catat response jika gagal
+            if resp and isinstance(resp, dict) and resp.get("success"):
                 return {
                     "status": "FILLED",
                     "filled_price": limit_price,
                     "tx_hash": resp.get("orderID", "unknown")
                 }
             else:
-                return {"status": "FAILED", "error": str(resp)}
+                error_msg = resp.get("error") if isinstance(resp, dict) else str(resp)
+                logger.error(f"Execution Failed Response: {resp}")
+                return {"status": "FAILED", "error": error_msg if error_msg else "Unknown API Error"}
                 
         except Exception as e:
+            import traceback
+            err_detail = traceback.format_exc()
+            logger.error(f"CRITICAL EXECUTION ERROR:\n{err_detail}")
             return {"status": "FAILED", "error": str(e)}
 
     async def execute(self, token_id: str, side: str, current_ask: float, size: float, config: Config):
+        # Tambahkan sedikit delay jika gagal agar tidak 'spamming'
         limit_price = round(current_ask + config.ABSOLUTE_SLIPPAGE, 3)
-        if limit_price > 0.99:
-            limit_price = 0.99
+        if limit_price > 0.99: limit_price = 0.99
             
         result = await asyncio.to_thread(self._execute_sync, token_id, side, limit_price, size)
         return result
