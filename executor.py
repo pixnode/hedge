@@ -1,8 +1,13 @@
 import asyncio
 import logging
 from py_clob_client.client import ClobClient
-from py_clob_client.clob_types import OrderArgs, Side
 from config import Config
+
+# Robust Import for OrderArgs
+try:
+    from py_clob_client.clob_types import OrderArgs
+except ImportError:
+    OrderArgs = None
 
 logger = logging.getLogger("executor")
 logger.setLevel(logging.WARNING)
@@ -48,13 +53,24 @@ class OrderExecutor:
         if not self.client:
             return {"status": "FAILED", "error": "ClobClient not initialized"}
         try:
-            # Menggunakan Object OrderArgs (WAJIB untuk versi library ini)
-            order_args = OrderArgs(
-                token_id=token_id,
-                price=float(limit_price),
-                size=float(size),
-                side=Side.BUY
-            )
+            # Skenario: Library mewajibkan Object (bukan dict) tapi import bisa berbeda versi
+            if OrderArgs is not None:
+                order_args = OrderArgs(
+                    token_id=token_id,
+                    price=float(limit_price),
+                    size=float(size),
+                    side="BUY"
+                )
+            else:
+                # Fallback: Jika OrderArgs tidak bisa diimpor, kita buat Object buatan
+                # karena library mencoba memanggil .token_id
+                from types import SimpleNamespace
+                order_args = SimpleNamespace(
+                    token_id=token_id,
+                    price=float(limit_price),
+                    size=float(size),
+                    side="BUY"
+                )
             
             # Post order
             resp = self.client.create_and_post_order(order_args)
