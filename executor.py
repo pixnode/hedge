@@ -10,20 +10,28 @@ class OrderExecutor:
     def __init__(self, config: Config):
         # We wrap in try-except so it doesn't crash if py_clob_client is not installed locally
         try:
+            # Arsitektur Sniper: Mendukung EOA dan Proxy Wallet (Gnosis/Relayer)
+            # Funder: Alamat yang mendanai transaksi. Jika ada Proxy, gunakan Proxy.
+            funder_addr = config.POLY_PROXY_ADDRESS if config.POLY_PROXY_ADDRESS else None
+            
             self.client = ClobClient(
                 host=config.CLOB_HOST,
                 key=config.POLYMARKET_PRIVATE_KEY if config.POLYMARKET_PRIVATE_KEY else "0x" + "0"*64,
                 chain_id=137, 
-                signature_type=1,
-                funder=config.POLYMARKET_PRIVATE_KEY if config.POLYMARKET_PRIVATE_KEY else "0x" + "0"*64
+                signature_type=config.SIGNATURE_TYPE,
+                funder=funder_addr
             )
-            self.client.set_api_creds(
-                self.client.create_api_key() if not config.POLY_API_KEY else {
+            
+            # API Key Management
+            if not config.POLY_API_KEY:
+                creds = self.client.create_api_key()
+                self.client.set_api_creds(creds)
+            else:
+                self.client.set_api_creds({
                     "apiKey": config.POLY_API_KEY,
                     "secret": config.POLY_API_SECRET,
                     "passphrase": config.POLY_API_PASSPHRASE
-                }
-            )
+                })
         except Exception as e:
             logger.error(f"Failed to initialize ClobClient: {e}")
             self.client = None
@@ -53,8 +61,7 @@ class OrderExecutor:
             return {"status": "FAILED", "error": str(e)}
 
     async def execute(self, token_id: str, side: str, current_ask: float, size: float, config: Config):
-        # Removal of slippage: Using current_ask as the limit price directly
-        limit_price = round(current_ask, 3)
+        limit_price = round(current_ask + config.ABSOLUTE_SLIPPAGE, 3)
         if limit_price > 0.99:
             limit_price = 0.99
             
