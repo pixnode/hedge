@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from py_clob_client.client import ClobClient
+from py_clob_client.clob_types import OrderArgs, Side
 from config import Config
 
 logger = logging.getLogger("executor")
@@ -47,13 +48,13 @@ class OrderExecutor:
         if not self.client:
             return {"status": "FAILED", "error": "ClobClient not initialized"}
         try:
-            # Format OrderArgs sesuai standar terbaru py_clob_client
-            order_args = {
-                "token_id": token_id,
-                "price": float(limit_price),
-                "size": float(size),
-                "side": "BUY"
-            }
+            # Menggunakan Object OrderArgs (WAJIB untuk versi library ini)
+            order_args = OrderArgs(
+                token_id=token_id,
+                price=float(limit_price),
+                size=float(size),
+                side=Side.BUY
+            )
             
             # Post order
             resp = self.client.create_and_post_order(order_args)
