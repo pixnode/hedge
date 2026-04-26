@@ -8,40 +8,39 @@ logger.setLevel(logging.WARNING)
 
 class OrderExecutor:
     def __init__(self, config: Config):
-        # We wrap in try-except so it doesn't crash if py_clob_client is not installed locally
         try:
-            # Arsitektur Sniper: Mendukung EOA dan Proxy Wallet (Gnosis/Relayer)
-            # Funder: Alamat yang mendanai transaksi. Jika ada Proxy, gunakan Proxy.
-            funder_addr = config.POLY_PROXY_ADDRESS if config.POLY_PROXY_ADDRESS else None
+            from eth_account import Account
+            account = Account.from_key(config.POLYMARKET_PRIVATE_KEY)
+            
+            funder_addr = config.POLY_PROXY_ADDRESS if config.POLY_PROXY_ADDRESS else account.address
             
             self.client = ClobClient(
                 host=config.CLOB_HOST,
-                key=config.POLYMARKET_PRIVATE_KEY if config.POLYMARKET_PRIVATE_KEY else "0x" + "0"*64,
+                key=config.POLYMARKET_PRIVATE_KEY,
                 chain_id=137, 
                 signature_type=config.SIGNATURE_TYPE,
                 funder=funder_addr
             )
-            # API Key Management
+            # API Key Management (Safe Approach)
             if config.POLY_API_KEY:
-                # Jika sudah ada key di .env, gunakan set_api_creds langsung
-                # Kita gunakan dictionary standar yang biasanya didukung atau biarkan library memprosesnya
                 try:
                     self.client.set_api_creds({
                         "apiKey": config.POLY_API_KEY,
                         "secret": config.POLY_API_SECRET,
                         "passphrase": config.POLY_API_PASSPHRASE
                     })
-                except AttributeError:
-                    # Jika gagal karena masalah attribute (biasanya di versi tertentu), kita coba bypass 
-                    # atau biarkan client menggunakan create_api_key jika memang tidak kompatibel
-                    logger.error("API Creds format mismatch, attempting to continue...")
+                except Exception as e:
+                    logger.error(f"API Creds skipping: {e}")
             else:
-                creds = self.client.create_api_key()
-                self.client.set_api_creds(creds)
+                try:
+                    creds = self.client.create_api_key()
+                    self.client.set_api_creds(creds)
+                except Exception as e:
+                    logger.error(f"API Creation failed: {e}")
                 
         except Exception as e:
             import traceback
-            logger.error(f"Failed to initialize ClobClient:\n{traceback.format_exc()}")
+            logger.error(f"CRITICAL INIT ERROR:\n{traceback.format_exc()}")
             self.client = None
         
     def _execute_sync(self, token_id: str, side: str, limit_price: float, size: float):
