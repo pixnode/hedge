@@ -21,19 +21,27 @@ class OrderExecutor:
                 signature_type=config.SIGNATURE_TYPE,
                 funder=funder_addr
             )
-            
             # API Key Management
-            if not config.POLY_API_KEY:
+            if config.POLY_API_KEY:
+                # Jika sudah ada key di .env, gunakan set_api_creds langsung
+                # Kita gunakan dictionary standar yang biasanya didukung atau biarkan library memprosesnya
+                try:
+                    self.client.set_api_creds({
+                        "apiKey": config.POLY_API_KEY,
+                        "secret": config.POLY_API_SECRET,
+                        "passphrase": config.POLY_API_PASSPHRASE
+                    })
+                except AttributeError:
+                    # Jika gagal karena masalah attribute (biasanya di versi tertentu), kita coba bypass 
+                    # atau biarkan client menggunakan create_api_key jika memang tidak kompatibel
+                    logger.error("API Creds format mismatch, attempting to continue...")
+            else:
                 creds = self.client.create_api_key()
                 self.client.set_api_creds(creds)
-            else:
-                self.client.set_api_creds({
-                    "apiKey": config.POLY_API_KEY,
-                    "secret": config.POLY_API_SECRET,
-                    "passphrase": config.POLY_API_PASSPHRASE
-                })
+                
         except Exception as e:
-            logger.error(f"Failed to initialize ClobClient: {e}")
+            import traceback
+            logger.error(f"Failed to initialize ClobClient:\n{traceback.format_exc()}")
             self.client = None
         
     def _execute_sync(self, token_id: str, side: str, limit_price: float, size: float):
@@ -75,4 +83,9 @@ class OrderExecutor:
         if limit_price > 0.99: limit_price = 0.99
             
         result = await asyncio.to_thread(self._execute_sync, token_id, side, limit_price, size)
+        
+        # Cool-down jika gagal
+        if result.get("status") == "FAILED":
+            await asyncio.sleep(1.0)
+            
         return result
