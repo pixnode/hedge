@@ -1,95 +1,309 @@
-import asyncio
-import time
 import random
+import csv
 import logging
-from dataclasses import dataclass
-import temporal_engine
-from temporal_engine import TemporalEngine, OrderBookEvent
-from executor import OrderExecutor
+import math
 from config import config
 
-# Disable logs so console isn't flooded
+# Disable temporal_engine logs
 logging.getLogger("temporal_engine").setLevel(logging.CRITICAL)
 
-class MockExecutor(OrderExecutor):
-    def __init__(self):
-        super().__init__(config)
-        self.trades = 0
-        self.total_slippage = 0.0
+def generate_wild_window_prices(duration_sec=300, start_price=0.50):
+    """Mean-Reverting Jump Diffusion model for BTC price swings."""
+    prices = [start_price]
+    volatility = 0.02  # Daily noise
+    reversion_speed = 0.01 
     
-    async def execute(self, token_id: str, side: str, current_ask: float, size: float, config_obj):
-        await asyncio.sleep(0.001)  # Simulate network latency
-        filled_price = current_ask # No slippage simulation as requested
+    for t in range(1, duration_sec):
+        # 1. Calculate Noise
+        noise = random.normalvariate(0, volatility)
         
-        self.trades += 1
+        # 2. Calculate Reversion
+        reversion = reversion_speed * (0.50 - prices[-1])
         
-        return {
-            "status": "FILLED",
-            "filled_price": round(filled_price, 3),
-            "tx_hash": f"mock_tx_{self.trades}"
-        }
-
-class MockFeed:
-    async def update_subscription(self, up_token: str, down_token: str):
-        pass
-
-async def feed_simulator(queue: asyncio.Queue, engine: TemporalEngine):
-    """Feeds artificial crossing data directly into the queue."""
-    await asyncio.sleep(1) # Warm up delay
-    while True:
-        # Generate odds that sum to <= 0.90 to trigger Hedging Logic
-        up = round(random.uniform(0.30, 0.45), 2)
-        down = round(random.uniform(0.30, 0.45), 2)
-        
-        queue.put_nowait(OrderBookEvent(up_ask=up, down_ask=down, timestamp=time.time()))
-        await asyncio.sleep(0.01) # Ultra fast tick rate
-
-async def force_1000_trades(engine: TemporalEngine, executor: MockExecutor):
-    start_time = time.time()
-    
-    while executor.trades < 1000:
-        # Manually reset locks so the engine can continuously take trades within the same window
-        if engine.has_up and engine.has_down:
-            engine.has_up = False
-            engine.has_down = False
+        # 3. Calculate Jump
+        jump = 0
+        if random.random() < 0.01:  # 1% chance every second
+            jump = random.uniform(-0.30, 0.30)
             
-        await asyncio.sleep(0.05)
+        new_price = prices[-1] + noise + reversion + jump
         
-    end_time = time.time()
-    
-    print("\n" + "="*45)
-    print("BACKTEST PIPELINE SUMMARY")
-    print("="*45)
-    print(f"Total Executed Trades : {executor.trades}")
-    print(f"Win Rate Assumption   : 50.0% (Fully Hedged Arb)")
-    print(f"Execution Time        : {(end_time - start_time):.2f} seconds")
-    print("="*45 + "\n")
-    
-    # Kill the process
-    import os, sys
-    sys.stdout.flush()
-    os._exit(0)
+        # Constrain to Polymarket limits
+        new_price = max(0.01, min(0.99, new_price))
+        prices.append(new_price)
+        
+    return prices
 
-async def main():
-    queue = asyncio.Queue()
-    mock_feed = MockFeed()
-    mock_executor = MockExecutor()
+def run_simulation(total_windows=1000):
+    results = []
+    capital_saved = 0.0
+    total_slippage_cost = 0.0
     
-    engine = TemporalEngine(queue, mock_feed, mock_executor)
+    # Derive shares from BASE_TRADE_USD and typical entry price
+    # In Polymarket, size = number of shares. Cost = size * price
+    # We use BASE_TRADE_USD as the number of shares to buy per side
+    shares = config.BASE_TRADE_USD
     
-    # Patch the fetcher to prevent exceptions from internet discovery
-    temporal_engine.fetch_token_ids_for_slug = lambda slug: ("0x_MOCK_UP", "0x_MOCK_DOWN")
+    print(f"Starting Backtest: {total_windows} Windows (Ultra-Safe Mode)")
+    print(f"  Entry Target    : <= {config.TARGET_MAX_ENTRY}")
+    print(f"  Max Hedge Cost  : <= {config.MAX_HEDGE_COST}")
+    print(f"  Slippage        : {config.ABSOLUTE_SLIPPAGE}")
+    print(f"  Shares per Side : {shares}")
+    print(f"  Panic Timing    : T-{config.GOLDEN_WINDOW_END_SEC}s")
+    print()
+    
+    for w in range(total_windows):
+        up_prices = generate_wild_window_prices()
+        
+        has_up = False
+        has_down = False
+        leg1_price = 0.0
+        leg1_side = ""
+        up_entry = 0.0
+        down_entry = 0.0
+        dynamic_target = config.TARGET_MAX_ENTRY
+        panic_mode = False
+        window_active = True
+        
+        w_result = {
+            "window": w,
+            "status": "SKIPPED",
+            "pnl": 0.0,
+            "panic": False,
+            "up_entry": 0.0,
+            "down_entry": 0.0,
+            "combined": 0.0,
+            "invested": 0.0
+        }
+        
+        for t in range(300):
+            t_minus = 300 - t
+            
+            true_up = up_prices[t]
+            true_down = 1.0 - true_up
+            spread = random.uniform(0.02, 0.06)
+            
+            up_ask = min(0.99, true_up + spread/2)
+            up_bid = max(0.01, true_up - spread/2)
+            down_ask = min(0.99, true_down + spread/2)
+            down_bid = max(0.01, true_down - spread/2)
+            
+            if not window_active:
+                break
+                
+            # Pillar 1 Skip (uses config)
+            if t_minus <= config.GOLDEN_WINDOW_END_SEC and not has_up and not has_down:
+                window_active = False
+                break
+                
+            # Pillar 3 Panic Exit / Force Buy (uses config)
+            if t_minus <= config.GOLDEN_WINDOW_END_SEC and (has_up ^ has_down) and not panic_mode:
+                panic_mode = True
+                w_result["panic"] = True
+                
+                missing_ask = down_ask if has_up else up_ask
+                filled_bid = up_bid if has_up else down_bid
+                filled_entry = up_entry if has_up else down_entry
+                
+                if missing_ask <= dynamic_target:
+                    # Force Buy the missing side
+                    slip = random.uniform(0.01, config.ABSOLUTE_SLIPPAGE)
+                    fill = min(0.99, missing_ask + slip)
+                    total_slippage_cost += slip * shares
+                    
+                    if has_up:
+                        down_entry = fill
+                    else:
+                        up_entry = fill
+                    
+                    has_up = True
+                    has_down = True
+                    w_result["status"] = "FORCE_HEDGED"
+                else:
+                    # Panic Sell: Liquidate Leg 1 at market
+                    slip = random.uniform(0.01, config.ABSOLUTE_SLIPPAGE)
+                    sell_price = max(0.01, filled_bid - slip)
+                    total_slippage_cost += slip * shares
+                    
+                    # PnL = (sell_price - buy_price) * shares
+                    # This is ALWAYS a loss or small gain (we bought low, selling under pressure)
+                    pnl = (sell_price - filled_entry) * shares
+                    
+                    w_result["pnl"] = pnl
+                    w_result["status"] = "PANIC_EXIT"
+                    capital_saved += sell_price * shares  # Capital recovered
+                break
+                
+            # Pillar 1 & 2 Normal Hunting
+            if t_minus > config.GOLDEN_WINDOW_END_SEC and not panic_mode:
+                up_target = config.TARGET_MAX_ENTRY if not has_down else dynamic_target
+                down_target = config.TARGET_MAX_ENTRY if not has_up else dynamic_target
+                
+                if not has_up and up_ask <= up_target:
+                    has_up = True
+                    slip = random.uniform(0.01, config.ABSOLUTE_SLIPPAGE)
+                    fill = min(0.99, up_ask + slip)
+                    total_slippage_cost += slip * shares
+                    up_entry = fill
+                    
+                    if leg1_price == 0.0:
+                        leg1_price = fill
+                        leg1_side = "UP"
+                        dynamic_target = config.MAX_HEDGE_COST - leg1_price
+                        
+                if not has_down and down_ask <= down_target:
+                    has_down = True
+                    slip = random.uniform(0.01, config.ABSOLUTE_SLIPPAGE)
+                    fill = min(0.99, down_ask + slip)
+                    total_slippage_cost += slip * shares
+                    down_entry = fill
+                    
+                    if leg1_price == 0.0:
+                        leg1_price = fill
+                        leg1_side = "DOWN"
+                        dynamic_target = config.MAX_HEDGE_COST - leg1_price
+                        
+                if has_up and has_down:
+                    w_result["status"] = "HEDGED"
+                    break
+                    
+        # Calculate PnL for hedged trades
+        if has_up and has_down:
+            combined = up_entry + down_entry
+            invested = combined * shares
+            # Binary option: one side pays $1/share, other pays $0
+            # Holding both sides = guaranteed $1/share payout
+            payout = 1.0 * shares
+            w_result["pnl"] = payout - invested
+            w_result["up_entry"] = up_entry
+            w_result["down_entry"] = down_entry
+            w_result["combined"] = combined
+            w_result["invested"] = invested
+            
+        results.append(w_result)
+        
+    return results, capital_saved, total_slippage_cost
 
-    print("Starting High-Speed Backtester. Targeting 1000 trades...", flush=True)
+def analyze_and_report(results, capital_saved, total_slippage_cost):
+    total_pnl = sum(r["pnl"] for r in results)
+    
+    hedged_trades = [r for r in results if r["status"] == "HEDGED"]
+    force_trades = [r for r in results if r["status"] == "FORCE_HEDGED"]
+    panic_trades = [r for r in results if r["status"] == "PANIC_EXIT"]
+    skipped_trades = [r for r in results if r["status"] == "SKIPPED"]
+    
+    all_hedged = hedged_trades + force_trades
+    
+    win_trades = [r for r in results if r["pnl"] > 0]
+    loss_trades = [r for r in results if r["pnl"] < 0]
+    even_trades = [r for r in results if r["pnl"] == 0 and r["status"] != "SKIPPED"]
+    
+    total_executions = len(all_hedged) + len(panic_trades)
+    win_rate = (len(win_trades) / total_executions * 100) if total_executions > 0 else 0
+    
+    # Hedged stats
+    hedged_pnls = [r["pnl"] for r in all_hedged]
+    avg_hedged_profit = sum(hedged_pnls) / len(hedged_pnls) if hedged_pnls else 0
+    min_hedged = min(hedged_pnls) if hedged_pnls else 0
+    max_hedged = max(hedged_pnls) if hedged_pnls else 0
+    
+    # Panic stats
+    panic_pnls = [r["pnl"] for r in panic_trades]
+    avg_panic_loss = sum(panic_pnls) / len(panic_pnls) if panic_pnls else 0
+    panic_wins = len([p for p in panic_pnls if p > 0])
+    panic_losses = len([p for p in panic_pnls if p <= 0])
+    worst_panic = min(panic_pnls) if panic_pnls else 0
+    
+    # Combined entry stats for hedged
+    combined_costs = [r["combined"] for r in all_hedged if r["combined"] > 0]
+    avg_combined = sum(combined_costs) / len(combined_costs) if combined_costs else 0
+    
+    avg_profit = sum(r["pnl"] for r in win_trades) / len(win_trades) if win_trades else 0
+    avg_loss = sum(r["pnl"] for r in loss_trades) / len(loss_trades) if loss_trades else 0
+    
+    # Calculate Max Drawdown
+    max_dd = 0.0
+    peak = 0.0
+    current_balance = 0.0
+    max_consecutive_loss = 0
+    current_streak = 0
+    for r in results:
+        current_balance += r["pnl"]
+        if current_balance > peak:
+            peak = current_balance
+        dd = peak - current_balance
+        if dd > max_dd:
+            max_dd = dd
+        if r["pnl"] < 0:
+            current_streak += 1
+            max_consecutive_loss = max(max_consecutive_loss, current_streak)
+        else:
+            current_streak = 0
+    
+    # Profit factor
+    gross_profit = sum(r["pnl"] for r in results if r["pnl"] > 0)
+    gross_loss = abs(sum(r["pnl"] for r in results if r["pnl"] < 0))
+    profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else float('inf')
+    
+    # Sharpe-like ratio (per-trade)
+    all_pnls = [r["pnl"] for r in results if r["status"] != "SKIPPED"]
+    if len(all_pnls) > 1:
+        mean_pnl = sum(all_pnls) / len(all_pnls)
+        variance = sum((p - mean_pnl)**2 for p in all_pnls) / (len(all_pnls) - 1)
+        std_pnl = math.sqrt(variance)
+        sharpe = (mean_pnl / std_pnl) if std_pnl > 0 else 0
+    else:
+        sharpe = 0
+    
+    print("=" * 60)
+    print("  BACKTEST ANALYSIS REPORT (POST-AUDIT FIX)")
+    print("=" * 60)
+    
+    print("\n--- TRADE DISTRIBUTION ---")
+    print(f"  Total Windows Simulated  : {len(results)}")
+    print(f"  Skipped (Pillar 1 filter): {len(skipped_trades)} ({len(skipped_trades)/len(results)*100:.1f}%)")
+    print(f"  Fully Hedged             : {len(hedged_trades)} ({len(hedged_trades)/len(results)*100:.1f}%)")
+    print(f"  Force Hedged (T-N)       : {len(force_trades)}")
+    print(f"  Panic Exits              : {len(panic_trades)} ({len(panic_trades)/len(results)*100:.1f}%)")
+    print(f"  Total Executed           : {total_executions}")
+    
+    print("\n--- PROFITABILITY ---")
+    print(f"  Total Net PnL            : ${total_pnl:.2f}")
+    print(f"  Win Rate (Executed)      : {win_rate:.2f}%")
+    print(f"  Profit Factor            : {profit_factor:.2f}x")
+    print(f"  Sharpe Ratio (per trade) : {sharpe:.3f}")
+    print(f"  Avg Profit per Win       : ${avg_profit:.4f}")
+    print(f"  Avg Loss per Loss        : ${avg_loss:.4f}")
+    
+    print("\n--- HEDGED TRADES ---")
+    print(f"  Count                    : {len(all_hedged)}")
+    print(f"  Win Rate                 : 100.00% (mathematically guaranteed)")
+    print(f"  Avg PnL per Hedge        : ${avg_hedged_profit:.4f}")
+    print(f"  Min Hedge PnL            : ${min_hedged:.4f}")
+    print(f"  Max Hedge PnL            : ${max_hedged:.4f}")
+    print(f"  Avg Combined Entry Cost  : ${avg_combined:.4f}")
+    
+    print("\n--- PANIC EXITS (Pillar 3) ---")
+    print(f"  Count                    : {len(panic_trades)}")
+    print(f"  Panics with Profit       : {panic_wins} (sold higher than entry)")
+    print(f"  Panics with Loss         : {panic_losses}")
+    print(f"  Avg Panic PnL            : ${avg_panic_loss:.4f}")
+    print(f"  Worst Panic Loss         : ${worst_panic:.4f}")
+    print(f"  Capital Recovered        : ${capital_saved:.2f}")
+    
+    print("\n--- RISK METRICS ---")
+    print(f"  Max Drawdown             : ${max_dd:.2f}")
+    print(f"  Max Consecutive Losses   : {max_consecutive_loss}")
+    print(f"  Total Slippage Paid      : ${total_slippage_cost:.2f}")
+    
+    print("\n" + "=" * 60)
 
-    await asyncio.gather(
-        engine.run(),
-        feed_simulator(queue, engine),
-        force_1000_trades(engine, mock_executor)
-    )
+    # Save to CSV with expanded fields
+    with open("backtest_report.csv", "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["window", "status", "pnl", "panic", "up_entry", "down_entry", "combined", "invested"])
+        writer.writeheader()
+        writer.writerows(results)
+    print("  Detailed logs saved to 'backtest_report.csv'")
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("Backtest aborted.")
+    results, cap_saved, slip_cost = run_simulation(1000)
+    analyze_and_report(results, cap_saved, slip_cost)

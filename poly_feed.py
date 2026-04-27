@@ -10,32 +10,38 @@ logger.setLevel(logging.WARNING)
 
 @dataclass
 class OrderBookEvent:
-    up_ask: float
-    down_ask: float
+    asset_id: str
+    ask: float
+    bid: float
     timestamp: float
 
 class PolyWebsocketFeed:
     def __init__(self, ws_url: str, queue: asyncio.Queue):
         self.ws_url = ws_url
         self.queue = queue
-        self.up_token = None
-        self.down_token = None
-        
-        self.up_ask = 0.0
-        self.down_ask = 0.0
+        self.monitored_tokens = set()
+        self.latest_data = {} # Maps token_id -> {"ask": float, "bid": float}
         
         self.running = False
         self.ws_connection = None
 
-    async def update_subscription(self, up_token: str, down_token: str):
-        self.up_token = up_token
-        self.down_token = down_token
-        self.up_ask = 0.0
-        self.down_ask = 0.0
+    async def update_subscription(self, tokens: list):
+        """
+        Updates the active subscription. 
+        Ensures memory is cleaned up by removing tokens not in the new list.
+        """
+        new_set = set(tokens)
+        
+        # Memory Leak Prevention: Remove stale token data
+        stale_tokens = set(self.latest_data.keys()) - new_set
+        for token in stale_tokens:
+            self.latest_data.pop(token, None)
+            
+        self.monitored_tokens = new_set
         
         if self.ws_connection:
             sub_msg = {
-                "assets_ids": [self.up_token, self.down_token],
+                "assets_ids": list(self.monitored_tokens),
                 "type": "market"
             }
             try:
@@ -49,8 +55,8 @@ class PolyWebsocketFeed:
             try:
                 async with websockets.connect(self.ws_url) as ws:
                     self.ws_connection = ws
-                    if self.up_token and self.down_token:
-                        await self.update_subscription(self.up_token, self.down_token)
+                    if self.monitored_tokens:
+                        await self.update_subscription(list(self.monitored_tokens))
                     
                     async for msg in ws:
                         if not self.running:
@@ -72,37 +78,43 @@ class PolyWebsocketFeed:
 
     def _process_single_message(self, data: dict):
         asset_id = data.get("asset_id")
-        if not asset_id or asset_id not in (self.up_token, self.down_token):
+        if not asset_id or asset_id not in self.monitored_tokens:
             return
+
+        if asset_id not in self.latest_data:
+            self.latest_data[asset_id] = {"ask": 0.0, "bid": 0.0}
 
         asks = data.get("asks", [])
+        bids = data.get("bids", [])
         
-        # Validasi Likuiditas Dicabut (Phantom Spread fix)
+        # Extract Best Ask
         if not asks:
-            if asset_id == self.up_token:
-                self.up_ask = 0.0
-            elif asset_id == self.down_token:
-                self.down_ask = 0.0
-            return
-
-        try:
-            best_ask = min([float(ask["price"]) for ask in asks if float(ask["size"]) > 0])
-        except ValueError:
-            if asset_id == self.up_token:
-                self.up_ask = 0.0
-            elif asset_id == self.down_token:
-                self.down_ask = 0.0
-            return
-            
-        if asset_id == self.up_token:
-            self.up_ask = best_ask
-        elif asset_id == self.down_token:
-            self.down_ask = best_ask
-
-        # Hanya isi queue jika kedua ask > 0
-        if self.up_ask > 0 and self.down_ask > 0:
-            event = OrderBookEvent(up_ask=self.up_ask, down_ask=self.down_ask, timestamp=time.time())
+            self.latest_data[asset_id]["ask"] = 0.0
+        else:
             try:
-                self.queue.put_nowait(event)
-            except asyncio.QueueFull:
-                pass
+                best_ask = min([float(ask["price"]) for ask in asks if float(ask["size"]) > 0])
+                self.latest_data[asset_id]["ask"] = best_ask
+            except ValueError:
+                self.latest_data[asset_id]["ask"] = 0.0
+
+        # Extract Best Bid
+        if not bids:
+            self.latest_data[asset_id]["bid"] = 0.0
+        else:
+            try:
+                best_bid = max([float(bid["price"]) for bid in bids if float(bid["size"]) > 0])
+                self.latest_data[asset_id]["bid"] = best_bid
+            except ValueError:
+                self.latest_data[asset_id]["bid"] = 0.0
+            
+        # Emit event for the specific asset
+        event = OrderBookEvent(
+            asset_id=asset_id, 
+            ask=self.latest_data[asset_id]["ask"], 
+            bid=self.latest_data[asset_id]["bid"],
+            timestamp=time.time()
+        )
+        try:
+            self.queue.put_nowait(event)
+        except asyncio.QueueFull:
+            pass

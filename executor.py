@@ -53,29 +53,24 @@ class OrderExecutor:
         if not self.client:
             return {"status": "FAILED", "error": "ClobClient not initialized"}
         try:
-            # Skenario: Library mewajibkan Object (bukan dict) tapi import bisa berbeda versi
             if OrderArgs is not None:
                 order_args = OrderArgs(
                     token_id=token_id,
                     price=float(limit_price),
                     size=float(size),
-                    side="BUY"
+                    side=side
                 )
             else:
-                # Fallback: Jika OrderArgs tidak bisa diimpor, kita buat Object buatan
-                # karena library mencoba memanggil .token_id
                 from types import SimpleNamespace
                 order_args = SimpleNamespace(
                     token_id=token_id,
                     price=float(limit_price),
                     size=float(size),
-                    side="BUY"
+                    side=side
                 )
             
-            # Post order
             resp = self.client.create_and_post_order(order_args)
             
-            # Debugging: Catat response jika gagal
             if resp and isinstance(resp, dict) and resp.get("success"):
                 return {
                     "status": "FILLED",
@@ -93,14 +88,18 @@ class OrderExecutor:
             logger.error(f"CRITICAL EXECUTION ERROR:\n{err_detail}")
             return {"status": "FAILED", "error": str(e)}
 
-    async def execute(self, token_id: str, side: str, current_ask: float, size: float, config: Config):
-        # Tambahkan sedikit delay jika gagal agar tidak 'spamming'
-        limit_price = round(current_ask + config.ABSOLUTE_SLIPPAGE, 3)
-        if limit_price > 0.99: limit_price = 0.99
+    async def execute(self, token_id: str, side: str, ref_price: float, size: float, config: Config):
+        if side == "BUY":
+            limit_price = round(ref_price + config.ABSOLUTE_SLIPPAGE, 3)
+            if limit_price > 0.99: limit_price = 0.99
+        elif side == "SELL":
+            limit_price = round(ref_price - config.ABSOLUTE_SLIPPAGE, 3)
+            if limit_price < 0.01: limit_price = 0.01
+        else:
+            return {"status": "FAILED", "error": "Invalid side"}
             
         result = await asyncio.to_thread(self._execute_sync, token_id, side, limit_price, size)
         
-        # Cool-down jika gagal
         if result.get("status") == "FAILED":
             await asyncio.sleep(1.0)
             
