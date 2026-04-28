@@ -45,6 +45,7 @@ class PolyWebsocketFeed:
                 "assets_ids": list(self.monitored_tokens)
             }
             try:
+                logger.warning(f"Sending Poly Sub: {json.dumps(sub_msg)}")
                 await self.ws_connection.send(json.dumps(sub_msg))
             except Exception as e:
                 logger.error(f"Failed to subscribe: {e}")
