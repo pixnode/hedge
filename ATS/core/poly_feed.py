@@ -52,11 +52,23 @@ class PolyWebsocketFeed:
         self.running = True
         while self.running:
             try:
+                # NEW: Wait until we actually have tokens before connecting
+                while self.running and not self.monitored_tokens:
+                    await asyncio.sleep(1)
+                
+                if not self.running: break
+                
                 async with websockets.connect(self.ws_url) as ws:
                     logger.warning(f"Poly Feed connected to: {self.ws_url}")
                     self.ws_connection = ws
-                    if self.monitored_tokens:
-                        await self.update_subscription(list(self.monitored_tokens))
+                    
+                    # Immediate subscription to avoid 'INVALID OPERATION' from idle
+                    sub_msg = {
+                        "type": "market",
+                        "assets_ids": list(self.monitored_tokens)
+                    }
+                    logger.warning(f"Sending Poly Sub: {json.dumps(sub_msg)}")
+                    await ws.send(json.dumps(sub_msg))
                     
                     async for msg in ws:
                         if not self.running:
@@ -69,8 +81,9 @@ class PolyWebsocketFeed:
                         self._process_message(data)
                         
             except Exception as e:
-                logger.error(f"WebSocket error: {e}. Reconnecting in 2s...")
-                await asyncio.sleep(2)
+                self.ws_connection = None
+                logger.error(f"WebSocket error: {e}. Reconnecting in 5s...")
+                await asyncio.sleep(5)
 
     def _process_message(self, data):
         # Proteksi List/Dict (L2 JSON Structure Variation)
