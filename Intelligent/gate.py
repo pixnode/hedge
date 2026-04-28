@@ -3,18 +3,20 @@ import json
 import logging
 import os
 import datetime
+import asyncio
+import requests
+from dotenv import load_dotenv
 from .memory import PoolMemory
 from .bullpen_connector import BullpenConnector
 from .openrouter_agent import OpenRouterAgent
-
-import requests
-from dotenv import load_dotenv
 
 logger = logging.getLogger("intelligent.gate")
 
 # Load environment
 env_path = os.path.join(os.path.dirname(__file__), "config.env")
 load_dotenv(env_path)
+
+class IntelligentGate:
     def __init__(self):
         self.memory = PoolMemory()
         self.bullpen = BullpenConnector()
