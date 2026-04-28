@@ -24,8 +24,22 @@ class Config:
     ABSOLUTE_SLIPPAGE: float = float(os.getenv("ABSOLUTE_SLIPPAGE", "0.10"))
     
     # Temporal Constraints (in seconds, Cast to int)
-    GOLDEN_WINDOW_START_SEC: int = int(os.getenv("GOLDEN_WINDOW_START_SEC", "300"))
-    GOLDEN_WINDOW_END_SEC: int = int(os.getenv("GOLDEN_WINDOW_END_SEC", "20"))
+    GOLDEN_WINDOW_START_SEC: int = int(os.getenv("GOLDEN_WINDOW_START_SEC", "300")) # Legacy, can be kept for fallback
+    GOLDEN_WINDOW_END_SEC: int = int(os.getenv("GOLDEN_WINDOW_END_SEC", "20")) # Legacy, now Pillar 3 transition
+    
+    # ATS v2.0 Parameters
+    P1_SNIPER_OPEN_SEC: int = int(os.getenv("P1_SNIPER_OPEN_SEC", "10"))
+    P1_SNIPER_CLOSE_SEC: int = int(os.getenv("P1_SNIPER_CLOSE_SEC", "10"))
+    P2_SLIPPAGE: float = float(os.getenv("P2_SLIPPAGE", "0.13"))
+    P2_POLL_INTERVAL: float = float(os.getenv("P2_POLL_INTERVAL", "0.05"))
+    P2_PROXIMITY_ALERT: float = float(os.getenv("P2_PROXIMITY_ALERT", "0.05"))
+    P2_RELAX_LATE: float = float(os.getenv("P2_RELAX_LATE", "0.02"))
+    P2_RELAX_LATE_SEC: int = int(os.getenv("P2_RELAX_LATE_SEC", "60"))
+    P2_RELAX_CRITICAL: float = float(os.getenv("P2_RELAX_CRITICAL", "0.03"))
+    P2_RELAX_CRITICAL_SEC: int = int(os.getenv("P2_RELAX_CRITICAL_SEC", "40"))
+    OVERLAP_ZONE_SEC: int = int(os.getenv("OVERLAP_ZONE_SEC", "25"))
+    BID_FLOOR_THRESHOLD: float = float(os.getenv("BID_FLOOR_THRESHOLD", "0.05"))
+    PREFETCH_SEC: int = int(os.getenv("PREFETCH_SEC", "15"))
     
     # Dead Zone: UTC hour ranges where bot skips all windows (low volatility / thin liquidity)
     # Format: "HH-HH,HH-HH" e.g. "20-00,05-07" = skip 20:00-00:00 UTC AND 05:00-07:00 UTC

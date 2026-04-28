@@ -64,6 +64,11 @@ def run_simulation(total_windows=1000):
         panic_mode = False
         window_active = True
         
+        pillar1_expired = False
+        pillar1_got_one = False
+        overlap_zone_active = False
+        panic_bid_tracked = 0.0
+        
         w_result = {
             "window": w,
             "status": "SKIPPED",
@@ -90,77 +95,104 @@ def run_simulation(total_windows=1000):
             if not window_active:
                 break
                 
-            # Pillar 1 Skip (uses config)
-            if t_minus <= config.GOLDEN_WINDOW_END_SEC and not has_up and not has_down:
-                window_active = False
-                break
+            seconds_into_window = t
+            
+            # Pillar 1 Expiration (T+10)
+            if seconds_into_window > config.P1_SNIPER_CLOSE_SEC and not pillar1_expired:
+                pillar1_expired = True
+                if has_up and has_down:
+                    pass # Hedged
+                elif has_up ^ has_down:
+                    pillar1_got_one = True
+                else:
+                    window_active = False
+                    break
+                    
+            # Overlap Zone Activation
+            if t_minus <= config.OVERLAP_ZONE_SEC and not overlap_zone_active and pillar1_got_one and not (has_up and has_down):
+                overlap_zone_active = True
                 
-            # Pillar 3 Panic Exit / Force Buy (uses config)
+            if overlap_zone_active:
+                filled_bid = up_bid if has_up else down_bid
+                panic_bid_tracked = filled_bid
+                
+            # Pillar 3: Panic Exit
             if t_minus <= config.GOLDEN_WINDOW_END_SEC and (has_up ^ has_down) and not panic_mode:
                 panic_mode = True
                 w_result["panic"] = True
                 
                 missing_ask = down_ask if has_up else up_ask
-                filled_bid = up_bid if has_up else down_bid
                 filled_entry = up_entry if has_up else down_entry
                 
-                if missing_ask <= dynamic_target:
-                    # Force Buy the missing side
-                    slip = random.uniform(0.01, config.ABSOLUTE_SLIPPAGE)
+                critical_target = dynamic_target + config.P2_RELAX_CRITICAL + 0.01
+                if missing_ask <= critical_target:
+                    # Force Buy
+                    slip = random.uniform(0.01, config.P2_SLIPPAGE)
                     fill = min(0.99, missing_ask + slip)
                     total_slippage_cost += slip * shares
-                    
-                    if has_up:
-                        down_entry = fill
-                    else:
-                        up_entry = fill
-                    
-                    has_up = True
-                    has_down = True
+                    if has_up: down_entry = fill
+                    else: up_entry = fill
+                    has_up = True; has_down = True
                     w_result["status"] = "FORCE_HEDGED"
                 else:
-                    # Panic Sell: Liquidate Leg 1 at market
-                    slip = random.uniform(0.01, config.ABSOLUTE_SLIPPAGE)
-                    sell_price = max(0.01, filled_bid - slip)
-                    total_slippage_cost += slip * shares
-                    
-                    # PnL = (sell_price - buy_price) * shares
-                    # This is ALWAYS a loss or small gain (we bought low, selling under pressure)
-                    pnl = (sell_price - filled_entry) * shares
-                    
-                    w_result["pnl"] = pnl
-                    w_result["status"] = "PANIC_EXIT"
-                    capital_saved += sell_price * shares  # Capital recovered
+                    if panic_bid_tracked < config.BID_FLOOR_THRESHOLD:
+                        w_result["status"] = "LIQUIDITY_VACUUM_EXPIRED"
+                        pnl = (0 - filled_entry) * shares
+                        w_result["pnl"] = pnl
+                    else:
+                        slip = random.uniform(0.01, config.ABSOLUTE_SLIPPAGE)
+                        sell_price = max(0.01, panic_bid_tracked - slip)
+                        total_slippage_cost += slip * shares
+                        pnl = (sell_price - filled_entry) * shares
+                        w_result["pnl"] = pnl
+                        w_result["status"] = "PANIC_EXIT"
+                        capital_saved += sell_price * shares
                 break
                 
-            # Pillar 1 & 2 Normal Hunting
+            # Pillar 1 & 2 Hunting
             if t_minus > config.GOLDEN_WINDOW_END_SEC and not panic_mode:
-                up_target = config.TARGET_MAX_ENTRY if not has_down else dynamic_target
-                down_target = config.TARGET_MAX_ENTRY if not has_up else dynamic_target
-                
-                if not has_up and up_ask <= up_target:
-                    has_up = True
-                    slip = random.uniform(0.01, config.ABSOLUTE_SLIPPAGE)
-                    fill = min(0.99, up_ask + slip)
-                    total_slippage_cost += slip * shares
-                    up_entry = fill
-                    
-                    if leg1_price == 0.0:
+                if not pillar1_expired:
+                    # Pillar 1
+                    if not has_up and up_ask <= config.TARGET_MAX_ENTRY:
+                        has_up = True
+                        slip = random.uniform(0.01, config.ABSOLUTE_SLIPPAGE)
+                        fill = min(0.99, up_ask + slip)
+                        total_slippage_cost += slip * shares
+                        up_entry = fill
                         leg1_price = fill
                         leg1_side = "UP"
                         dynamic_target = config.MAX_HEDGE_COST - leg1_price
                         
-                if not has_down and down_ask <= down_target:
-                    has_down = True
-                    slip = random.uniform(0.01, config.ABSOLUTE_SLIPPAGE)
-                    fill = min(0.99, down_ask + slip)
-                    total_slippage_cost += slip * shares
-                    down_entry = fill
-                    
-                    if leg1_price == 0.0:
-                        leg1_price = fill
-                        leg1_side = "DOWN"
-                        dynamic_target = config.MAX_HEDGE_COST - leg1_price
+                    if not has_down and down_ask <= config.TARGET_MAX_ENTRY:
+                        has_down = True
+                        slip = random.uniform(0.01, config.ABSOLUTE_SLIPPAGE)
+                        fill = min(0.99, down_ask + slip)
+                        total_slippage_cost += slip * shares
+                        down_entry = fill
+                        if leg1_price == 0.0:
+                            leg1_price = fill
+                            leg1_side = "DOWN"
+                            dynamic_target = config.MAX_HEDGE_COST - leg1_price
+                elif pillar1_got_one:
+                    # Pillar 2
+                    current_dynamic_target = dynamic_target
+                    if t_minus <= config.P2_RELAX_LATE_SEC and t_minus > config.P2_RELAX_CRITICAL_SEC:
+                        current_dynamic_target += config.P2_RELAX_LATE
+                    elif t_minus <= config.P2_RELAX_CRITICAL_SEC:
+                        current_dynamic_target += config.P2_RELAX_CRITICAL
+                        
+                    if not has_up and up_ask <= current_dynamic_target:
+                        has_up = True
+                        slip = random.uniform(0.01, config.P2_SLIPPAGE)
+                        fill = min(0.99, up_ask + slip)
+                        total_slippage_cost += slip * shares
+                        up_entry = fill
+                    if not has_down and down_ask <= current_dynamic_target:
+                        has_down = True
+                        slip = random.uniform(0.01, config.P2_SLIPPAGE)
+                        fill = min(0.99, down_ask + slip)
+                        total_slippage_cost += slip * shares
+                        down_entry = fill
                         
                 if has_up and has_down:
                     w_result["status"] = "HEDGED"

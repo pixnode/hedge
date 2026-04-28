@@ -273,3 +273,11 @@ awk -F',' 'NR>1 {sum+=$12} END {print "Total PnL: $"sum}' trades.csv
 ---
 
 > **DISCLAIMER:** Bot ini beroperasi di pasar nyata dengan uang sungguhan. Selalu mulai dengan `PAPER_TRADING_MODE=True` untuk memvalidasi koneksi API dan logika eksekusi sebelum beralih ke Live. Pantau `trades.csv` dan `ats_execution.log` secara rutin.
+
+kode python sama sekali:
+
+TARGET_MAX_ENTRY (Batas harga maksimum untuk Leg 1, default: 0.20)
+MAX_HEDGE_COST (Batas total biaya maksimum untuk kedua sisi, default: 0.80)
+ABSOLUTE_SLIPPAGE (Biaya slippage statis yang ditambahkan/dikurangkan dari harga saat Panic Sell atau Force Buy, default: 0.10)
+BASE_TRADE_USD (Ukuran share/jumlah kontrak per transaksi, default: 2.0)
+MAX_POSITION_USD (Batas maksimal inventory per window)

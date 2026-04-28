@@ -88,12 +88,13 @@ class OrderExecutor:
             logger.error(f"CRITICAL EXECUTION ERROR:\n{err_detail}")
             return {"status": "FAILED", "error": str(e)}
 
-    async def execute(self, token_id: str, side: str, ref_price: float, size: float, config: Config):
+    async def execute(self, token_id: str, side: str, ref_price: float, size: float, config: Config, slippage: float = None):
+        used_slippage = slippage if slippage is not None else config.ABSOLUTE_SLIPPAGE
         if side == "BUY":
-            limit_price = round(ref_price + config.ABSOLUTE_SLIPPAGE, 3)
+            limit_price = round(ref_price + used_slippage, 3)
             if limit_price > 0.99: limit_price = 0.99
         elif side == "SELL":
-            limit_price = round(ref_price - config.ABSOLUTE_SLIPPAGE, 3)
+            limit_price = round(ref_price - used_slippage, 3)
             if limit_price < 0.01: limit_price = 0.01
         else:
             return {"status": "FAILED", "error": "Invalid side"}

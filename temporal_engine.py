@@ -38,7 +38,6 @@ def fetch_token_ids_for_slug(slug: str):
                         return tokens[0], tokens[1]
     except Exception as e:
         logger.error(f"Failed to fetch tokens for slug {slug}: {e}")
-    # CRITICAL FALLBACK FIX: Raise exception instead of returning mock tokens
     raise ValueError(f"CRITICAL: Token discovery failed for {slug}")
 
 class TemporalEngine:
@@ -76,18 +75,23 @@ class TemporalEngine:
         self.last_up_bid = 0.0
         self.last_down_bid = 0.0
         
-        # New 3-Pillar State
+        # ATS v2.0 State
         self.window_active = True
         self.dead_zone_active = False
         self.leg1_price = 0.0
         self.dynamic_target = config.TARGET_MAX_ENTRY
         self.panic_mode = False
         
+        self.pillar1_open = False
+        self.pillar1_expired = False
+        self.pillar1_got_one = False
+        self.overlap_zone_active = False
+        self.panic_bid_tracked = 0.0
+        
         self.executions = []
         self.last_status_time = 0
 
     def is_dead_zone(self) -> bool:
-        """Check if current UTC hour falls within any configured dead zone."""
         dz = config.DEAD_ZONE_UTC.strip()
         if not dz:
             return False
@@ -100,11 +104,9 @@ class TemporalEngine:
             start_h = int(parts[0])
             end_h = int(parts[1])
             if start_h <= end_h:
-                # Normal range e.g. 05-07
                 if start_h <= utc_hour < end_h:
                     return True
             else:
-                # Wraps midnight e.g. 20-00 means 20,21,22,23
                 if utc_hour >= start_h or utc_hour < end_h:
                     return True
         return False
@@ -126,7 +128,6 @@ class TemporalEngine:
             asyncio.create_task(self.send_telegram(f"ATS Sniper: {msg}"))
 
     def write_trade_csv(self, row: dict):
-        """Append a trade record to trades.csv. Auto-creates headers on first write."""
         file_exists = os.path.isfile(TRADE_CSV)
         try:
             with open(TRADE_CSV, "a", newline="", encoding="utf-8") as f:
@@ -151,7 +152,7 @@ class TemporalEngine:
 
     async def preemptive_discovery(self, target_epoch: int):
         slug = f"btc-updown-5m-{target_epoch}"
-        self.log_exec(f"🔍 [T-10] Starting Pre-emptive Discovery: {slug}")
+        self.log_exec(f"🔍 [T-{config.PREFETCH_SEC}] Starting Pre-emptive Discovery: {slug}")
         while time.time() < target_epoch:
             try:
                 up, down = await asyncio.to_thread(fetch_token_ids_for_slug, slug)
@@ -165,29 +166,33 @@ class TemporalEngine:
         self.log_exec(f"⚠️ Discovery Timeout for {slug}")
 
     async def run(self):
-        self.log_exec("🚀 ATS v1.0 Ultra-Safe Active")
+        self.log_exec("🚀 ATS v2.0 Ultra-Safe Active")
         while True:
             try:
                 now = time.time()
                 current_epoch = int(now)
                 
+                # Standard window calculations
                 window_start = current_epoch - (current_epoch % 300)
                 next_window_start = window_start + 300
                 
-                # 1. T-10 PRE-EMPTIVE DISCOVERY
-                if current_epoch >= next_window_start - 10 and not self.fetching_next:
+                # 1. PRE-FETCH DISCOVERY
+                if current_epoch >= next_window_start - config.PREFETCH_SEC and not self.fetching_next:
                     self.fetching_next = True
                     asyncio.create_task(self.preemptive_discovery(next_window_start))
 
-                # 2. T-0 WINDOW TRANSITION
-                if window_start != self.window_start_epoch:
+                # 2. WINDOW TRANSITION (Shifted to T-10)
+                # We transition to the new window earlier than T-0 to allow the P1 Sniper window to start
+                active_target_epoch = next_window_start if current_epoch >= next_window_start - config.P1_SNIPER_OPEN_SEC else window_start
+                
+                if active_target_epoch != self.window_start_epoch:
                     if self.up_token and self.down_token:
                         self.last_window_tokens = [self.up_token, self.down_token]
-                        self.last_window_expiry = now + 5
+                        self.last_window_expiry = now + 15 # Keep old tokens alive a bit longer for P3 panic
                     
-                    self.window_start_epoch = window_start
+                    self.window_start_epoch = active_target_epoch
                     
-                    if self.next_up_token and self.next_window_slug == f"btc-updown-5m-{window_start}":
+                    if self.next_up_token and self.next_window_slug == f"btc-updown-5m-{active_target_epoch}":
                         self.up_token = self.next_up_token
                         self.down_token = self.next_down_token
                         self.current_window_slug = self.next_window_slug
@@ -201,27 +206,33 @@ class TemporalEngine:
                             await asyncio.sleep(1)
                             continue
 
-                    # Reset State for New Window
+                    # Reset ATS v2.0 State
                     self.up_invested_usd = 0.0
                     self.down_invested_usd = 0.0
                     self.up_fill_price = 0.0
                     self.down_fill_price = 0.0
                     self.has_up = False
                     self.has_down = False
+                    
                     self.window_active = True
                     self.leg1_price = 0.0
                     self.dynamic_target = config.TARGET_MAX_ENTRY
                     self.panic_mode = False
+                    self.pillar1_open = True
+                    self.pillar1_expired = False
+                    self.pillar1_got_one = False
+                    self.overlap_zone_active = False
+                    self.panic_bid_tracked = 0.0
                     self.fetching_next = False
                     self.executions.clear()
-                    self.log_exec(f"🔄 [T-0] Switch -> {self.current_window_slug}", send_tele=True)
                     
-                    # Dead Zone Check
+                    self.log_exec(f"🔄 Switch -> {self.current_window_slug} [Pillar 1 Sniper Armed]", send_tele=True)
+                    
                     if self.is_dead_zone():
                         self.window_active = False
                         self.dead_zone_active = True
                         utc_h = datetime.datetime.utcnow().strftime("%H:%M UTC")
-                        self.log_exec(f"💤 DEAD ZONE ({utc_h}) — Skipping window (low vol / thin liquidity)")
+                        self.log_exec(f"💤 DEAD ZONE ({utc_h}) — Skipping window")
                         self.write_trade_csv({
                             "action": "DEAD_ZONE_SKIP", "side": "-", "asset": "-",
                             "ref_price": 0, "fill_price": 0, "shares": 0,
@@ -236,20 +247,55 @@ class TemporalEngine:
                         sub_list.extend(self.last_window_tokens)
                     await self.feed.update_subscription(sub_list)
 
-                # 3. T+5 CLEANUP
+                # 3. CLEANUP OLD WINDOW
                 if self.last_window_expiry > 0 and now >= self.last_window_expiry:
-                    self.log_exec(f"🧹 [T+5] Releasing old window context")
+                    self.log_exec(f"🧹 Releasing old window context")
                     self.last_window_expiry = 0
                     self.last_window_tokens = None
                     await self.feed.update_subscription([self.up_token, self.down_token])
 
-                # 4. Update T-Minus
+                # 4. UPDATE TIMERS
+                seconds_into_window = current_epoch - self.window_start_epoch
                 window_end = self.window_start_epoch + 300
                 self.t_minus = window_end - current_epoch
 
-                # 5. Process Data Events
+                # ATS v2.0 State Transitions
+                if self.window_active:
+                    # Pillar 1 Expiration (T+10)
+                    if self.pillar1_open and seconds_into_window > config.P1_SNIPER_CLOSE_SEC:
+                        self.pillar1_open = False
+                        self.pillar1_expired = True
+                        if self.has_up and self.has_down:
+                            self.log_exec("🏁 P1 Result: HEDGED. Skipping P2.")
+                        elif self.has_up ^ self.has_down:
+                            self.pillar1_got_one = True
+                            self.log_exec(f"🏁 P1 Result: 1 Leg Filled. Transition to Pillar 2. Target frozen at {self.dynamic_target:.2f}")
+                        else:
+                            self.window_active = False
+                            self.log_exec(f"⏭️ SKIP WINDOW: 0 Legs filled in P1. Disarming.")
+                            self.write_trade_csv({
+                                "action": "SKIP", "side": "-", "asset": "-",
+                                "ref_price": 0, "fill_price": 0, "shares": 0,
+                                "up_entry": self.last_up_ask, "down_entry": self.last_down_ask,
+                                "combined": 0, "pnl": 0, "status": "SKIPPED", "tx_hash": "-"
+                            })
+                            continue
+                            
+                    # Overlap Zone Activation (T-25)
+                    if self.t_minus <= config.OVERLAP_ZONE_SEC and not self.overlap_zone_active and self.pillar1_got_one and not (self.has_up and self.has_down):
+                        self.overlap_zone_active = True
+                        self.log_exec(f"⚠️ OVERLAP ZONE ACTIVE (T-{config.OVERLAP_ZONE_SEC}): Pre-arming Panic Logic")
+
+                # 5. PROCESS DATA EVENTS
+                poll_timeout = 0.1
+                # Tight loop for Pillar 2 if close to target
+                if self.window_active and self.pillar1_got_one and not (self.has_up and self.has_down) and not self.overlap_zone_active:
+                    missing_ask = self.last_down_ask if self.has_up else self.last_up_ask
+                    if 0 < missing_ask <= self.dynamic_target + config.P2_PROXIMITY_ALERT:
+                        poll_timeout = config.P2_POLL_INTERVAL
+
                 try:
-                    event: OrderBookEvent = await asyncio.wait_for(self.queue.get(), timeout=0.1)
+                    event: OrderBookEvent = await asyncio.wait_for(self.queue.get(), timeout=poll_timeout)
                     if event.asset_id == self.up_token:
                         self.last_up_ask = event.ask
                         self.last_up_bid = event.bid
@@ -258,64 +304,70 @@ class TemporalEngine:
                         self.last_down_bid = event.bid
                 except asyncio.TimeoutError:
                     pass
-                
-                # 6. Ultra-Safe Logic (3 Pillars)
+
+                # 6. ATS v2.0 PILLARS EXECUTION LOGIC
                 if not self.window_active:
                     continue
                     
-                # PILLAR 1: Skip Rule (T-N Check)
-                if self.t_minus <= config.GOLDEN_WINDOW_END_SEC and not self.has_up and not self.has_down:
-                    self.window_active = False
-                    self.log_exec(f"⏭️ SKIP WINDOW: No entry hit <= {config.TARGET_MAX_ENTRY}")
-                    self.write_trade_csv({
-                        "action": "SKIP", "side": "-", "asset": "-",
-                        "ref_price": 0, "fill_price": 0, "shares": 0,
-                        "up_entry": self.last_up_ask, "down_entry": self.last_down_ask,
-                        "combined": 0, "pnl": 0, "status": "SKIPPED", "tx_hash": "-"
-                    })
-                    continue
-
-                # PILLAR 3: Emergency Exit (T-N Guard)
+                # Evaluate Panic Bid Tracking in Overlap Zone
+                if self.overlap_zone_active:
+                    filled_bid = self.last_up_bid if self.has_up else self.last_down_bid
+                    self.panic_bid_tracked = filled_bid
+                    
+                # PILLAR 3: Emergency Exit (T-20 Guard)
                 if self.t_minus <= config.GOLDEN_WINDOW_END_SEC and (self.has_up ^ self.has_down) and not self.panic_mode:
                     self.panic_mode = True
-                    self.log_exec("🚨 EMERGENCY EXIT TRIGGERED (T-20)")
+                    self.log_exec(f"🚨 PILLAR 3 EMERGENCY TRIGGERED (T-{self.t_minus})")
                     
-                    # Missing side logic
                     missing_side = "DOWN" if self.has_up else "UP"
                     missing_ask = self.last_down_ask if missing_side == "DOWN" else self.last_up_ask
                     missing_token = self.down_token if missing_side == "DOWN" else self.up_token
                     
-                    # Filled side logic
                     filled_side = "UP" if self.has_up else "DOWN"
                     filled_bid = self.last_up_bid if filled_side == "UP" else self.last_down_bid
                     filled_token = self.up_token if filled_side == "UP" else self.down_token
                     
-                    if 0 < missing_ask <= self.dynamic_target:
-                        # Condition A: Force Buy (Hedge Completable)
-                        self.log_exec(f"⚡ FORCE BUY: {missing_side} @ {missing_ask}")
-                        asyncio.create_task(self.fire_order(missing_token, "BUY", missing_ask, config.BASE_TRADE_USD, missing_side))
+                    # Final check if hedge is possible even at strict target (or relaxed)
+                    critical_target = self.dynamic_target + config.P2_RELAX_CRITICAL + 0.01
+                    if 0 < missing_ask <= critical_target:
+                        self.log_exec(f"⚡ P3 LATE HEDGE BUY: {missing_side} @ {missing_ask}")
+                        asyncio.create_task(self.fire_order(missing_token, "BUY", missing_ask, config.BASE_TRADE_USD, missing_side, slippage=config.P2_SLIPPAGE))
                     else:
-                        # Condition B: Panic Sell (Liquidate Leg 1)
-                        self.log_exec(f"💥 PANIC SELL: Liquidation {filled_side} @ {filled_bid}")
-                        asyncio.create_task(self.fire_order(filled_token, "SELL", filled_bid, config.BASE_TRADE_USD, filled_side))
+                        if self.panic_bid_tracked < config.BID_FLOOR_THRESHOLD:
+                            self.log_exec(f"🛑 LIQUIDITY_VACUUM_DETECTED: Panic bid {self.panic_bid_tracked} < {config.BID_FLOOR_THRESHOLD}. Letting expire.")
+                        else:
+                            self.log_exec(f"💥 PANIC SELL: Liquidation {filled_side} @ {self.panic_bid_tracked}")
+                            asyncio.create_task(self.fire_order(filled_token, "SELL", self.panic_bid_tracked, config.BASE_TRADE_USD, filled_side))
                     continue
 
-                # PILLAR 1 & 2: Normal Hunting (T > 20)
-                if self.t_minus > 20 and not self.panic_mode:
+                # PILLAR 1 & 2: Hunting (T > 20)
+                if self.t_minus > config.GOLDEN_WINDOW_END_SEC and not self.panic_mode:
                     tasks = []
                     
-                    # If hunting for first leg OR second leg target met
-                    up_target = config.TARGET_MAX_ENTRY if not self.has_down else self.dynamic_target
-                    down_target = config.TARGET_MAX_ENTRY if not self.has_up else self.dynamic_target
-                    
-                    if not self.has_up and 0 < self.last_up_ask <= up_target:
-                        self.has_up = True # Optimistic lock
-                        tasks.append(self.fire_order(self.up_token, "BUY", self.last_up_ask, config.BASE_TRADE_USD, "UP"))
-                        
-                    if not self.has_down and 0 < self.last_down_ask <= down_target:
-                        self.has_down = True # Optimistic lock
-                        tasks.append(self.fire_order(self.down_token, "BUY", self.last_down_ask, config.BASE_TRADE_USD, "DOWN"))
-                        
+                    if self.pillar1_open:
+                        # PILLAR 1 Logic: strict target, no relaxation
+                        if not self.has_up and 0 < self.last_up_ask <= config.TARGET_MAX_ENTRY:
+                            self.has_up = True
+                            tasks.append(self.fire_order(self.up_token, "BUY", self.last_up_ask, config.BASE_TRADE_USD, "UP", slippage=config.ABSOLUTE_SLIPPAGE))
+                        if not self.has_down and 0 < self.last_down_ask <= config.TARGET_MAX_ENTRY:
+                            self.has_down = True
+                            tasks.append(self.fire_order(self.down_token, "BUY", self.last_down_ask, config.BASE_TRADE_USD, "DOWN", slippage=config.ABSOLUTE_SLIPPAGE))
+                    elif self.pillar1_got_one:
+                        # PILLAR 2 Logic: Dynamic relaxation
+                        current_dynamic_target = self.dynamic_target
+                        if self.t_minus <= config.P2_RELAX_LATE_SEC and self.t_minus > config.P2_RELAX_CRITICAL_SEC:
+                            current_dynamic_target += config.P2_RELAX_LATE
+                        elif self.t_minus <= config.P2_RELAX_CRITICAL_SEC:
+                            current_dynamic_target += config.P2_RELAX_CRITICAL
+                            
+                        # Only hunt for the missing leg
+                        if not self.has_up and 0 < self.last_up_ask <= current_dynamic_target:
+                            self.has_up = True
+                            tasks.append(self.fire_order(self.up_token, "BUY", self.last_up_ask, config.BASE_TRADE_USD, "UP", slippage=config.P2_SLIPPAGE))
+                        if not self.has_down and 0 < self.last_down_ask <= current_dynamic_target:
+                            self.has_down = True
+                            tasks.append(self.fire_order(self.down_token, "BUY", self.last_down_ask, config.BASE_TRADE_USD, "DOWN", slippage=config.P2_SLIPPAGE))
+                            
                     if tasks:
                         await asyncio.gather(*tasks)
 
@@ -323,10 +375,10 @@ class TemporalEngine:
                 logger.error(f"Engine Loop Error: {e}")
                 await asyncio.sleep(1)
 
-    async def fire_order(self, token, side, price, size, asset_name):
+    async def fire_order(self, token, side, price, size, asset_name, slippage=None):
         self.log_exec(f"⚡ SEND: {side} {asset_name} Ref @ {price:.2f}")
         try:
-            res = await self.executor.execute(token, side, price, size, config)
+            res = await self.executor.execute(token, side, price, size, config, slippage=slippage)
             if res.get("status") == "FILLED":
                 filled = res.get("filled_price", price)
                 tx_hash = res.get("tx_hash", "unknown")
@@ -339,15 +391,13 @@ class TemporalEngine:
                         self.down_invested_usd += (size * filled)
                         self.down_fill_price = filled
                     
-                    # Update dynamic target based on first leg
                     if self.leg1_price == 0.0:
                         self.leg1_price = filled
                         self.dynamic_target = config.MAX_HEDGE_COST - self.leg1_price
-                        self.log_exec(f"🎯 DYNAMIC TARGET SET: Leg 2 must be <= {self.dynamic_target:.2f}")
+                        self.log_exec(f"🎯 TARGET FROZEN: Leg 2 target <= {self.dynamic_target:.2f}")
                         
                     self.log_exec(f"✅ {asset_name} FILLED @ {filled:.2f} | Tx: {tx_hash[:8]}")
                     
-                    # Log BUY to CSV
                     self.write_trade_csv({
                         "action": "BUY", "side": side, "asset": asset_name,
                         "ref_price": price, "fill_price": filled, "shares": size,
@@ -355,15 +405,12 @@ class TemporalEngine:
                         "combined": 0, "pnl": 0, "status": "FILLED", "tx_hash": tx_hash
                     })
                     
-                    # Trigger Cycle Done Report if Fully Hedged
                     if self.has_up and self.has_down:
                         await self.send_cycle_done_report()
                 else:
-                    # Panic Sell filled
                     panic_pnl = (filled - self.leg1_price) * size
                     self.log_exec(f"💸 {asset_name} SOLD (PANIC) @ {filled:.2f} | Tx: {tx_hash[:8]}")
                     
-                    # Log PANIC SELL to CSV
                     self.write_trade_csv({
                         "action": "PANIC_SELL", "side": side, "asset": asset_name,
                         "ref_price": price, "fill_price": filled, "shares": size,
@@ -373,14 +420,12 @@ class TemporalEngine:
                     })
                     
             else:
-                # Reset lock if failed
                 if side == "BUY":
                     if asset_name == "UP": self.has_up = False
                     if asset_name == "DOWN": self.has_down = False
                 err = res.get('error', 'unknown')
                 self.log_exec(f"❌ {asset_name} FAILED: {str(err)[:20]}")
                 
-                # Log FAILED to CSV
                 self.write_trade_csv({
                     "action": f"{side}_FAILED", "side": side, "asset": asset_name,
                     "ref_price": price, "fill_price": 0, "shares": size,
@@ -402,7 +447,6 @@ class TemporalEngine:
         dt = datetime.datetime.fromtimestamp(self.window_start_epoch)
         window_time_str = dt.strftime("%H:%M %b %d")
         
-        # Log HEDGED completion to CSV
         self.write_trade_csv({
             "action": "CYCLE_DONE", "side": "-", "asset": "BOTH",
             "ref_price": 0, "fill_price": 0, "shares": config.BASE_TRADE_USD,
