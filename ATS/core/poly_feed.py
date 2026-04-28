@@ -54,6 +54,7 @@ class PolyWebsocketFeed:
         while self.running:
             try:
                 async with websockets.connect(self.ws_url) as ws:
+                    logger.warning(f"Poly Feed connected to: {self.ws_url}")
                     self.ws_connection = ws
                     if self.monitored_tokens:
                         await self.update_subscription(list(self.monitored_tokens))
