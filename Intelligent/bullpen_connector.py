@@ -18,7 +18,7 @@ class BullpenConnector:
         cmd_base = vps_path if os.path.exists(vps_path) else "bullpen"
         
         try:
-            cmd = f"{cmd_base} polymarket data smart-money --json"
+            cmd = f"{cmd_base} polymarket data smart-money --output json"
             result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
             
             if result.returncode != 0:
