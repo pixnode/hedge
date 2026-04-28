@@ -3,6 +3,7 @@ import json
 import logging
 import time
 import websockets
+import requests
 from dataclasses import dataclass
 
 logger = logging.getLogger("poly_feed")
@@ -28,10 +29,7 @@ class PolyWebsocketFeed:
     async def update_subscription(self, tokens: list):
         """
         Updates the active subscription. 
-        Ensures memory is cleaned up by removing tokens not in the new list.
         """
-        new_set = set(tokens)
-        
         if not tokens:
             return
             
@@ -40,11 +38,12 @@ class PolyWebsocketFeed:
         if self.ws_connection:
             sub_msg = {
                 "type": "market",
-                "assets_ids": list(self.monitored_tokens)
+                "assets_ids": [str(t) for t in self.monitored_tokens]
             }
             try:
-                logger.warning(f"Sending Poly Sub: {json.dumps(sub_msg)}")
-                await self.ws_connection.send(json.dumps(sub_msg))
+                outgoing_json = json.dumps(sub_msg)
+                logger.warning(f"Sending Poly Sub Update: {outgoing_json}")
+                await self.ws_connection.send(outgoing_json)
             except Exception as e:
                 logger.error(f"Failed to subscribe: {e}")
 
@@ -52,7 +51,7 @@ class PolyWebsocketFeed:
         self.running = True
         while self.running:
             try:
-                # NEW: Wait until we actually have tokens before connecting
+                # Wait until we actually have tokens before connecting
                 while self.running and not self.monitored_tokens:
                     await asyncio.sleep(1)
                 
@@ -62,13 +61,17 @@ class PolyWebsocketFeed:
                     logger.warning(f"Poly Feed connected to: {self.ws_url}")
                     self.ws_connection = ws
                     
-                    # Immediate subscription to avoid 'INVALID OPERATION' from idle
+                    # Small grace period for handshake
+                    await asyncio.sleep(0.5)
+                    
+                    # Immediate subscription - FORCE STRING IDs
                     sub_msg = {
                         "type": "market",
-                        "assets_ids": list(self.monitored_tokens)
+                        "assets_ids": [str(t) for t in self.monitored_tokens]
                     }
-                    logger.warning(f"Sending Poly Sub: {json.dumps(sub_msg)}")
-                    await ws.send(json.dumps(sub_msg))
+                    outgoing_json = json.dumps(sub_msg)
+                    logger.warning(f"Sending Initial Poly Sub: {outgoing_json}")
+                    await ws.send(outgoing_json)
                     
                     async for msg in ws:
                         if not self.running:
@@ -86,7 +89,6 @@ class PolyWebsocketFeed:
                 await asyncio.sleep(5)
 
     def _process_message(self, data):
-        # Proteksi List/Dict (L2 JSON Structure Variation)
         if isinstance(data, list):
             for item in data:
                 self._process_single_message(item)
@@ -95,7 +97,7 @@ class PolyWebsocketFeed:
 
     def _process_single_message(self, data: dict):
         asset_id = data.get("asset_id")
-        if not asset_id or asset_id not in self.monitored_tokens:
+        if not asset_id or str(asset_id) not in [str(t) for t in self.monitored_tokens]:
             return
 
         if asset_id not in self.latest_data:
