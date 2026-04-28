@@ -10,17 +10,19 @@ class BullpenConnector:
 
     def get_smart_money_signals(self):
         """
-        Executes the Bullpen CLI to fetch real-time smart money movements.
-        Command: bullpen polymarket data smart-money --output json
+        Executes Bullpen CLI to fetch smart money flow for Polymarket.
         """
+        # Try absolute path first for VPS, then fallback to 'bullpen'
+        vps_path = "/root/.bullpen/bin/bullpen"
+        cmd_base = vps_path if os.path.exists(vps_path) else "bullpen"
+        
         try:
-            # We assume 'bullpen' is in the system PATH
-            cmd = [self.cli_path, "polymarket", "data", "smart-money", "--output", "json"]
-            
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+            cmd = f"{cmd_base} polymarket data smart-money --json"
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
             
             if result.returncode != 0:
-                logger.error(f"Bullpen CLI Error: {result.stderr}")
+                if "Login Required" in result.stderr:
+                    logger.warning("Bullpen Login Required. Please run 'bullpen login' in terminal.")
                 return None
             
             data = json.loads(result.stdout)
