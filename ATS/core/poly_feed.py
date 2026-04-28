@@ -17,6 +17,9 @@ class OrderBookEvent:
 
 class PolyWebsocketFeed:
     def __init__(self, ws_url: str, queue: asyncio.Queue):
+        # Official Market Channel endpoint must end in /market
+        if not ws_url.endswith("/market"):
+            ws_url = ws_url.rstrip("/") + "/market"
         self.ws_url = ws_url
         self.queue = queue
         self.monitored_tokens = set()
@@ -41,8 +44,10 @@ class PolyWebsocketFeed:
         
         if self.ws_connection:
             sub_msg = {
-                "type": "subscribe",
-                "market_ids": list(self.monitored_tokens)
+                "type": "market",
+                "assets_ids": list(self.monitored_tokens),
+                "initial_dump": True,
+                "level": 2
             }
             try:
                 await self.ws_connection.send(json.dumps(sub_msg))
@@ -82,9 +87,7 @@ class PolyWebsocketFeed:
 
     def _process_single_message(self, data: dict):
         asset_id = data.get("asset_id")
-        # In L2 Book messages, monitored_tokens are market_ids
-        # We process any asset_id that belongs to our subscribed markets
-        if not asset_id:
+        if not asset_id or asset_id not in self.monitored_tokens:
             return
 
         if asset_id not in self.latest_data:

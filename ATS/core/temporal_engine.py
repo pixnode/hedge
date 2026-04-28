@@ -289,7 +289,7 @@ class TemporalEngine:
                     else:
                         self.dead_zone_active = False
                     
-                    sub_list = [self.market_id] if hasattr(self, 'market_id') and self.market_id else []
+                    sub_list = [self.up_token, self.down_token]
                     await self.feed.update_subscription(sub_list)
 
                 # 3. CLEANUP OLD WINDOW
