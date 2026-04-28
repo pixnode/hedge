@@ -103,6 +103,9 @@ class TemporalEngine:
         
         self.executions = []
         self.last_status_time = 0
+        
+        # Ensure log directory exists
+        os.makedirs("logs", exist_ok=True)
 
     def is_dead_zone(self) -> bool:
         dz = config.DEAD_ZONE_UTC.strip()
@@ -138,7 +141,10 @@ class TemporalEngine:
             pass
             
         if send_tele and config.TELEGRAM_BOT_TOKEN and config.TELEGRAM_CHAT_ID:
-            asyncio.create_task(self.send_telegram(f"ATS Sniper: {msg}"))
+            try:
+                asyncio.create_task(self.send_telegram(f"ATS Sniper: {msg}"))
+            except RuntimeError:
+                pass # Event loop closed during shutdown
 
     def write_trade_csv(self, row: dict):
         file_exists = os.path.isfile(TRADE_CSV)
