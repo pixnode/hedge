@@ -41,8 +41,8 @@ class PolyWebsocketFeed:
         
         if self.ws_connection:
             sub_msg = {
-                "assets_ids": list(self.monitored_tokens),
-                "type": "market"
+                "type": "subscribe",
+                "assets_ids": list(self.monitored_tokens)
             }
             try:
                 await self.ws_connection.send(json.dumps(sub_msg))
