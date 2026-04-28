@@ -7,9 +7,14 @@ from .memory import PoolMemory
 from .bullpen_connector import BullpenConnector
 from .openrouter_agent import OpenRouterAgent
 
+import requests
+from dotenv import load_dotenv
+
 logger = logging.getLogger("intelligent.gate")
 
-class IntelligentGate:
+# Load environment
+env_path = os.path.join(os.path.dirname(__file__), "config.env")
+load_dotenv(env_path)
     def __init__(self):
         self.memory = PoolMemory()
         self.bullpen = BullpenConnector()
@@ -88,3 +93,15 @@ class IntelligentGate:
             f"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501"
         )
         print(msg)
+        
+        # Send to Telegram
+        bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+        chat_id = os.getenv("TELEGRAM_CHAT_ID")
+        
+        if bot_token and chat_id:
+            url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+            payload = {"chat_id": chat_id, "text": msg}
+            try:
+                await asyncio.to_thread(requests.post, url, json=payload, timeout=5)
+            except Exception as e:
+                logger.error(f"Gate Telegram Notify Failed: {e}")
