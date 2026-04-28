@@ -38,7 +38,7 @@ def fetch_token_ids_for_slug(slug: str):
                         return tokens[0], tokens[1]
     except Exception as e:
         logger.error(f"Failed to fetch tokens for slug {slug}: {e}")
-    raise ValueError(f"CRITICAL: Token discovery failed for {slug}")
+    return None, None
 
 class TemporalEngine:
     def __init__(self, queue: asyncio.Queue, feed: PolyWebsocketFeed, executor: OrderExecutor):
@@ -207,7 +207,14 @@ class TemporalEngine:
                     else:
                         self.current_window_slug = f"btc-updown-5m-{active_target_epoch}"
                         try:
-                            self.up_token, self.down_token = await asyncio.to_thread(fetch_token_ids_for_slug, self.current_window_slug)
+                            up, down = await asyncio.to_thread(fetch_token_ids_for_slug, self.current_window_slug)
+                            if up and down:
+                                self.up_token = up
+                                self.down_token = down
+                            else:
+                                self.log_exec(f"⚠️ Discovery Gap: {self.current_window_slug} not ready. Skipping.")
+                                self.window_active = False
+                                continue
                         except Exception as e:
                             self.log_exec(f"⚠️ Critical Transition Error: {e}")
                             await asyncio.sleep(1)
@@ -447,7 +454,7 @@ class TemporalEngine:
                     if asset_name == "UP": self.has_up = False
                     if asset_name == "DOWN": self.has_down = False
                 err = res.get('error', 'unknown')
-                self.log_exec(f"❌ {asset_name} FAILED: {str(err)[:20]}")
+                self.log_exec(f"❌ {asset_name} FAILED: {str(err)[:50]}")
                 
                 self.write_trade_csv({
                     "action": f"{side}_FAILED", "side": side, "asset": asset_name,

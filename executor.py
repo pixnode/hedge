@@ -1,13 +1,14 @@
 import asyncio
 import logging
-from py_clob_client.client import ClobClient
+from py_clob_client_v2.client import ClobClient
 from config import Config
 
 # Robust Import for OrderArgs
 try:
-    from py_clob_client.clob_types import OrderArgs
+    from py_clob_client_v2.clob_types import OrderArgs, ApiCreds
 except ImportError:
     OrderArgs = None
+    ApiCreds = None
 
 logger = logging.getLogger("executor")
 logger.setLevel(logging.WARNING)
@@ -30,11 +31,15 @@ class OrderExecutor:
             # API Key Management (Safe Approach)
             if config.POLY_API_KEY:
                 try:
-                    self.client.set_api_creds({
-                        "apiKey": config.POLY_API_KEY,
-                        "secret": config.POLY_API_SECRET,
-                        "passphrase": config.POLY_API_PASSPHRASE
-                    })
+                    if ApiCreds is not None:
+                        creds = ApiCreds(
+                            api_key=config.POLY_API_KEY,
+                            api_secret=config.POLY_API_SECRET,
+                            api_passphrase=config.POLY_API_PASSPHRASE
+                        )
+                        self.client.set_api_creds(creds)
+                    else:
+                        raise ValueError("ApiCreds class not found")
                 except Exception as e:
                     logger.error(f"API Creds skipping: {e}")
             else:
