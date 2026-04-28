@@ -8,3 +8,9 @@ __pycache__/
 ats_execution.log
 api_creds.json
 trades.csv
+backtest_report.csv
+scratch/
+*.png
+*.docx
+*.svg
+error.txt

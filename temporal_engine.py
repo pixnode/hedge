@@ -48,6 +48,7 @@ class TemporalEngine:
         
         self.current_window_slug = ""
         self.window_start_epoch = 0
+        self.current_window_expiry = 0
         
         self.up_token = ""
         self.down_token = ""
@@ -173,17 +174,23 @@ class TemporalEngine:
                 current_epoch = int(now)
                 
                 # Standard window calculations
-                window_start = current_epoch - (current_epoch % 300)
-                next_window_start = window_start + 300
+                # expiry_0: Window yang baru saja berakhir (atau sedang berakhir)
+                expiry_0 = current_epoch - (current_epoch % 300)
+                # expiry_1: Window yang sedang aktif (akan berakhir dalam 0-300 detik)
+                expiry_1 = expiry_0 + 300
+                # expiry_2: Window berikutnya (untuk Sniper P1)
+                expiry_2 = expiry_0 + 600
                 
                 # 1. PRE-FETCH DISCOVERY
-                if current_epoch >= next_window_start - config.PREFETCH_SEC and not self.fetching_next:
+                # Gunakan target_epoch yang unik agar tidak trigger berulang kali untuk epoch yang sama
+                if current_epoch >= expiry_1 - config.PREFETCH_SEC and self.next_window_slug != f"btc-updown-5m-{expiry_2}" and not self.fetching_next:
                     self.fetching_next = True
-                    asyncio.create_task(self.preemptive_discovery(next_window_start))
+                    asyncio.create_task(self.preemptive_discovery(expiry_2))
 
                 # 2. WINDOW TRANSITION (Shifted to T-10)
-                # We transition to the new window earlier than T-0 to allow the P1 Sniper window to start
-                active_target_epoch = next_window_start if current_epoch >= next_window_start - config.P1_SNIPER_OPEN_SEC else window_start
+                # Jika sudah masuk 10 detik terakhir window curr (expiry_1), 
+                # maka kita harus sudah fokus ke window next (expiry_2)
+                active_target_epoch = expiry_2 if current_epoch >= expiry_1 - config.P1_SNIPER_OPEN_SEC else expiry_1
                 
                 if active_target_epoch != self.window_start_epoch:
                     if self.up_token and self.down_token:
@@ -198,13 +205,16 @@ class TemporalEngine:
                         self.current_window_slug = self.next_window_slug
                         self.next_up_token = None
                     else:
-                        self.current_window_slug = f"btc-updown-5m-{self.window_start_epoch}"
+                        self.current_window_slug = f"btc-updown-5m-{active_target_epoch}"
                         try:
                             self.up_token, self.down_token = await asyncio.to_thread(fetch_token_ids_for_slug, self.current_window_slug)
                         except Exception as e:
                             self.log_exec(f"⚠️ Critical Transition Error: {e}")
                             await asyncio.sleep(1)
                             continue
+
+                    self.window_start_epoch = active_target_epoch # This is actually Expiry Epoch
+                    self.current_window_expiry = active_target_epoch
 
                     # Reset ATS v2.0 State
                     self.up_invested_usd = 0.0
@@ -222,8 +232,7 @@ class TemporalEngine:
                     self.pillar1_expired = False
                     self.pillar1_got_one = False
                     self.overlap_zone_active = False
-                    self.panic_bid_tracked = 0.0
-                    self.fetching_next = False
+                    # JANGAN reset fetching_next di sini, biarkan dia tetap True sampai window benar-akan berakhir
                     self.executions.clear()
                     
                     self.log_exec(f"🔄 Switch -> {self.current_window_slug} [Pillar 1 Sniper Armed]", send_tele=True)
@@ -254,10 +263,15 @@ class TemporalEngine:
                     self.last_window_tokens = None
                     await self.feed.update_subscription([self.up_token, self.down_token])
 
-                # 4. UPDATE TIMERS
-                seconds_into_window = current_epoch - self.window_start_epoch
-                window_end = self.window_start_epoch + 300
-                self.t_minus = window_end - current_epoch
+                # 4. UPDATE TIMERS (Precision Refactor)
+                self.t_minus = self.current_window_expiry - current_epoch
+                # window_duration_passed = 300 - t_minus (since t_minus is time to end)
+                # For Pillar 1 Sniper (T-10 prev to T+10 curr), we check if t_minus is between 310 and 290
+                # But to keep it simple, we use seconds_into_window:
+                seconds_into_window = 300 - self.t_minus 
+                # If t_minus > 300, it means we are in the pre-start (Sniper) phase of the new window
+                if self.t_minus > 300:
+                    seconds_into_window = -(self.t_minus - 300)
 
                 # ATS v2.0 State Transitions
                 if self.window_active:
@@ -269,7 +283,11 @@ class TemporalEngine:
                             self.log_exec("🏁 P1 Result: HEDGED. Skipping P2.")
                         elif self.has_up ^ self.has_down:
                             self.pillar1_got_one = True
-                            self.log_exec(f"🏁 P1 Result: 1 Leg Filled. Transition to Pillar 2. Target frozen at {self.dynamic_target:.2f}")
+                            # Initialize Base Target with full buffers (Slippage + Relaxation)
+                            # This ensures that even after full relaxation, we don't cross MAX_HEDGE_COST
+                            total_relax_buffer = config.P2_RELAX_LATE + config.P2_RELAX_CRITICAL
+                            self.dynamic_target = config.MAX_HEDGE_COST - self.leg1_price - config.P2_SLIPPAGE - total_relax_buffer
+                            self.log_exec(f"🏁 P1 Result: 1 Leg Filled. Pillar 2 Hard Target: {self.dynamic_target:.3f} (Buffers: Slip={config.P2_SLIPPAGE}, Relax={total_relax_buffer})")
                         else:
                             self.window_active = False
                             self.log_exec(f"⏭️ SKIP WINDOW: 0 Legs filled in P1. Disarming.")
@@ -327,9 +345,10 @@ class TemporalEngine:
                     filled_bid = self.last_up_bid if filled_side == "UP" else self.last_down_bid
                     filled_token = self.up_token if filled_side == "UP" else self.down_token
                     
-                    # Final check if hedge is possible even at strict target (or relaxed)
-                    critical_target = self.dynamic_target + config.P2_RELAX_CRITICAL + 0.01
-                    if 0 < missing_ask <= critical_target:
+                    # Final check: can we fill Leg 2 and stay under MAX_HEDGE_COST?
+                    # Limit is MAX_HEDGE_COST - leg1 - expected_slippage
+                    hard_limit_search = config.MAX_HEDGE_COST - self.leg1_price - config.P2_SLIPPAGE
+                    if 0 < missing_ask <= hard_limit_search + 0.005: # Tiny 0.5 cent margin for emergency
                         self.log_exec(f"⚡ P3 LATE HEDGE BUY: {missing_side} @ {missing_ask}")
                         asyncio.create_task(self.fire_order(missing_token, "BUY", missing_ask, config.BASE_TRADE_USD, missing_side, slippage=config.P2_SLIPPAGE))
                     else:
@@ -355,10 +374,12 @@ class TemporalEngine:
                     elif self.pillar1_got_one:
                         # PILLAR 2 Logic: Dynamic relaxation
                         current_dynamic_target = self.dynamic_target
+                        # Phase 1: Relax by P2_RELAX_LATE
                         if self.t_minus <= config.P2_RELAX_LATE_SEC and self.t_minus > config.P2_RELAX_CRITICAL_SEC:
                             current_dynamic_target += config.P2_RELAX_LATE
+                        # Phase 2: Relax by P2_RELAX_LATE + P2_RELAX_CRITICAL (fully relaxed)
                         elif self.t_minus <= config.P2_RELAX_CRITICAL_SEC:
-                            current_dynamic_target += config.P2_RELAX_CRITICAL
+                            current_dynamic_target += (config.P2_RELAX_LATE + config.P2_RELAX_CRITICAL)
                             
                         # Only hunt for the missing leg
                         if not self.has_up and 0 < self.last_up_ask <= current_dynamic_target:
@@ -393,8 +414,10 @@ class TemporalEngine:
                     
                     if self.leg1_price == 0.0:
                         self.leg1_price = filled
-                        self.dynamic_target = config.MAX_HEDGE_COST - self.leg1_price
-                        self.log_exec(f"🎯 TARGET FROZEN: Leg 2 target <= {self.dynamic_target:.2f}")
+                        # Initial calculation for the first time it hits (redundant but safe)
+                        total_relax_buffer = config.P2_RELAX_LATE + config.P2_RELAX_CRITICAL
+                        self.dynamic_target = config.MAX_HEDGE_COST - self.leg1_price - config.P2_SLIPPAGE - total_relax_buffer
+                        self.log_exec(f"🎯 HARD CEILING ARMED: Base Search Target <= {self.dynamic_target:.3f}")
                         
                     self.log_exec(f"✅ {asset_name} FILLED @ {filled:.2f} | Tx: {tx_hash[:8]}")
                     

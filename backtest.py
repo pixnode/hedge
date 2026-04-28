@@ -124,8 +124,9 @@ def run_simulation(total_windows=1000):
                 missing_ask = down_ask if has_up else up_ask
                 filled_entry = up_entry if has_up else down_entry
                 
-                critical_target = dynamic_target + config.P2_RELAX_CRITICAL + 0.01
-                if missing_ask <= critical_target:
+                # Phase 2: Relax by P2_RELAX_LATE + P2_RELAX_CRITICAL (fully relaxed)
+                hard_limit_search = config.MAX_HEDGE_COST - filled_entry - config.P2_SLIPPAGE
+                if missing_ask <= hard_limit_search + 0.005:
                     # Force Buy
                     slip = random.uniform(0.01, config.P2_SLIPPAGE)
                     fill = min(0.99, missing_ask + slip)
@@ -161,7 +162,9 @@ def run_simulation(total_windows=1000):
                         up_entry = fill
                         leg1_price = fill
                         leg1_side = "UP"
-                        dynamic_target = config.MAX_HEDGE_COST - leg1_price
+                        # Initialize Base Target with full buffers
+                        total_relax_buffer = config.P2_RELAX_LATE + config.P2_RELAX_CRITICAL
+                        dynamic_target = config.MAX_HEDGE_COST - leg1_price - config.P2_SLIPPAGE - total_relax_buffer
                         
                     if not has_down and down_ask <= config.TARGET_MAX_ENTRY:
                         has_down = True
@@ -172,14 +175,16 @@ def run_simulation(total_windows=1000):
                         if leg1_price == 0.0:
                             leg1_price = fill
                             leg1_side = "DOWN"
-                            dynamic_target = config.MAX_HEDGE_COST - leg1_price
+                            # Initialize Base Target with full buffers
+                            total_relax_buffer = config.P2_RELAX_LATE + config.P2_RELAX_CRITICAL
+                            dynamic_target = config.MAX_HEDGE_COST - leg1_price - config.P2_SLIPPAGE - total_relax_buffer
                 elif pillar1_got_one:
                     # Pillar 2
                     current_dynamic_target = dynamic_target
                     if t_minus <= config.P2_RELAX_LATE_SEC and t_minus > config.P2_RELAX_CRITICAL_SEC:
                         current_dynamic_target += config.P2_RELAX_LATE
                     elif t_minus <= config.P2_RELAX_CRITICAL_SEC:
-                        current_dynamic_target += config.P2_RELAX_CRITICAL
+                        current_dynamic_target += (config.P2_RELAX_LATE + config.P2_RELAX_CRITICAL)
                         
                     if not has_up and up_ask <= current_dynamic_target:
                         has_up = True
@@ -337,5 +342,5 @@ def analyze_and_report(results, capital_saved, total_slippage_cost):
     print("  Detailed logs saved to 'backtest_report.csv'")
 
 if __name__ == "__main__":
-    results, cap_saved, slip_cost = run_simulation(1000)
+    results, cap_saved, slip_cost = run_simulation(288)
     analyze_and_report(results, cap_saved, slip_cost)

@@ -2,6 +2,9 @@
 
 Arsitektur ATS v2.0 memperkenalkan serangkaian parameter dinamis yang mengontrol **State Machine 3-Pillar**. Mengubah angka-angka ini secara langsung akan mempengaruhi tingkat agresivitas bot, profil risiko, dan tingkat keberhasilan *fill rate* Anda.
 
+> [!IMPORTANT]
+> **Update v2.1 (Hard Ceiling Mode):** Sekarang bot menerapkan batas atas absolut (`MAX_HEDGE_COST`). Bot secara cerdas akan mengurangi buffer *Slippage* dan *Relaxation* dari harga target pencarian untuk menjamin total biaya tidak menjebol limit Anda.
+
 Panduan ini akan menjelaskan cara *tuning* (kalibrasi) setiap variabel yang baru ditambahkan ke dalam file `.env`.
 
 ---
