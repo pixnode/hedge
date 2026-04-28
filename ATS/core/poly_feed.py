@@ -61,7 +61,11 @@ class PolyWebsocketFeed:
                     async for msg in ws:
                         if not self.running:
                             break
-                        data = json.loads(msg)
+                        try:
+                            data = json.loads(msg)
+                        except json.JSONDecodeError:
+                            logger.error(f"Poly WS received non-JSON: {msg[:100]}...")
+                            continue
                         self._process_message(data)
                         
             except Exception as e:

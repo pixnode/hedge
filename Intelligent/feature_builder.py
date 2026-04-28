@@ -25,9 +25,13 @@ class FeatureBuilder:
             try:
                 async with websockets.connect(self.ws_url) as ws:
                     logger.info(f"Feature Builder connected to Binance: {self.symbol.upper()}")
-                    async for msg in ws:
-                        if not self.running: break
-                        data = json.loads(msg)
+                    while self.running:
+                        msg = await ws.recv()
+                        try:
+                            data = json.loads(msg)
+                        except json.JSONDecodeError:
+                            logger.error(f"Binance WS received non-JSON: {msg[:100]}...")
+                            continue
                         self._process_message(data)
             except Exception as e:
                 logger.error(f"Binance WS Error: {e}. Reconnecting...")
