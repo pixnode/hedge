@@ -242,6 +242,7 @@ class TemporalEngine:
                                 self.up_token = up
                                 self.down_token = down
                                 self.market_id = m_id
+                                self.log_exec(f"💎 Tokens Found: {up[:8]}... / {down[:8]}...")
                             else:
                                 self.log_exec(f"⚠️ Discovery Gap: {self.current_window_slug} not ready. Skipping.")
                                 self.window_active = False

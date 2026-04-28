@@ -6,7 +6,7 @@ import websockets
 from dataclasses import dataclass
 
 logger = logging.getLogger("poly_feed")
-logger.setLevel(logging.WARNING)
+logger.setLevel(logging.INFO)
 
 @dataclass
 class OrderBookEvent:
@@ -32,12 +32,10 @@ class PolyWebsocketFeed:
         """
         new_set = set(tokens)
         
-        # Memory Leak Prevention: Remove stale token data
-        stale_tokens = set(self.latest_data.keys()) - new_set
-        for token in stale_tokens:
-            self.latest_data.pop(token, None)
+        if not tokens:
+            return
             
-        self.monitored_tokens = new_set
+        self.monitored_tokens = set(tokens)
         
         if self.ws_connection:
             sub_msg = {
