@@ -46,10 +46,10 @@ def fetch_token_ids_for_slug(slug: str):
                         except:
                             pass
                     if isinstance(tokens, list) and len(tokens) >= 2:
-                        return tokens[0], tokens[1]
+                        return tokens[0], tokens[1], markets[0].get("id")
     except Exception as e:
         logger.error(f"Failed to fetch tokens for slug {slug}: {e}")
-    return None, None
+    return None, None, None
 
 class TemporalEngine:
     def __init__(self, queue: asyncio.Queue, feed: PolyWebsocketFeed, executor: OrderExecutor):
@@ -174,9 +174,10 @@ class TemporalEngine:
         self.log_exec(f"🔍 [T-{config.PREFETCH_SEC}] Starting Pre-emptive Discovery: {slug}")
         while time.time() < target_epoch:
             try:
-                up, down = await asyncio.to_thread(fetch_token_ids_for_slug, slug)
+                up, down, m_id = await asyncio.to_thread(fetch_token_ids_for_slug, slug)
                 self.next_up_token = up
                 self.next_down_token = down
+                self.next_market_id = m_id
                 self.next_window_slug = slug
                 self.log_exec(f"✅ Discovery Success: {up[:6]}... / {down[:6]}...")
                 return
@@ -236,10 +237,11 @@ class TemporalEngine:
                     else:
                         self.current_window_slug = f"btc-updown-5m-{active_target_epoch}"
                         try:
-                            up, down = await asyncio.to_thread(fetch_token_ids_for_slug, self.current_window_slug)
+                            up, down, m_id = await asyncio.to_thread(fetch_token_ids_for_slug, self.current_window_slug)
                             if up and down:
                                 self.up_token = up
                                 self.down_token = down
+                                self.market_id = m_id
                             else:
                                 self.log_exec(f"⚠️ Discovery Gap: {self.current_window_slug} not ready. Skipping.")
                                 self.window_active = False
@@ -287,9 +289,7 @@ class TemporalEngine:
                     else:
                         self.dead_zone_active = False
                     
-                    sub_list = [self.up_token, self.down_token]
-                    if self.last_window_tokens:
-                        sub_list.extend(self.last_window_tokens)
+                    sub_list = [self.market_id] if hasattr(self, 'market_id') and self.market_id else []
                     await self.feed.update_subscription(sub_list)
 
                 # 3. CLEANUP OLD WINDOW

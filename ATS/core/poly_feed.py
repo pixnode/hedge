@@ -42,7 +42,7 @@ class PolyWebsocketFeed:
         if self.ws_connection:
             sub_msg = {
                 "type": "subscribe",
-                "assets_ids": list(self.monitored_tokens)
+                "market_ids": list(self.monitored_tokens)
             }
             try:
                 await self.ws_connection.send(json.dumps(sub_msg))
@@ -82,7 +82,9 @@ class PolyWebsocketFeed:
 
     def _process_single_message(self, data: dict):
         asset_id = data.get("asset_id")
-        if not asset_id or asset_id not in self.monitored_tokens:
+        # In L2 Book messages, monitored_tokens are market_ids
+        # We process any asset_id that belongs to our subscribed markets
+        if not asset_id:
             return
 
         if asset_id not in self.latest_data:
