@@ -5,10 +5,10 @@ Use this when deploying via PM2 where no interactive terminal is available.
 """
 import asyncio
 import logging
-from config import config
-from poly_feed import PolyWebsocketFeed
-from executor import OrderExecutor
-from temporal_engine import TemporalEngine
+from core.config import config
+from core.poly_feed import PolyWebsocketFeed
+from core.executor import OrderExecutor
+from core.temporal_engine import TemporalEngine
 
 # Setup basic logging to stdout for PM2 log capture
 logging.basicConfig(

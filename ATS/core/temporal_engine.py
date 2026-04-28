@@ -6,11 +6,22 @@ import json
 import csv
 import os
 import datetime
-from config import config
-from poly_feed import PolyWebsocketFeed, OrderBookEvent
-from executor import OrderExecutor
+from .config import config
+from .poly_feed import PolyWebsocketFeed, OrderBookEvent
+from .executor import OrderExecutor
 
-TRADE_CSV = "trades.csv"
+# Path for Intelligent Department access
+import sys
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if ROOT_DIR not in sys.path:
+    sys.path.append(ROOT_DIR)
+
+try:
+    from Intelligent.gate import IntelligentGate
+except ImportError:
+    IntelligentGate = None
+
+TRADE_CSV = "logs/trades.csv"
 TRADE_HEADERS = [
     "timestamp", "window_slug", "action", "side", "asset",
     "ref_price", "fill_price", "shares", "up_entry", "down_entry",
@@ -45,6 +56,7 @@ class TemporalEngine:
         self.queue = queue
         self.feed = feed
         self.executor = executor
+        self.gate = IntelligentGate() if IntelligentGate else None
         
         self.current_window_slug = ""
         self.window_start_epoch = 0
@@ -120,7 +132,7 @@ class TemporalEngine:
             
         try:
             ts_file = time.strftime("%Y-%m-%d %H:%M:%S")
-            with open("ats_execution.log", "a", encoding="utf-8") as f:
+            with open("logs/ats_execution.log", "a", encoding="utf-8") as f:
                 f.write(f"[{ts_file}] {msg}\n")
         except Exception:
             pass
@@ -192,6 +204,17 @@ class TemporalEngine:
                 # maka kita harus sudah fokus ke window next (expiry_2)
                 active_target_epoch = expiry_2 if current_epoch >= expiry_1 - config.P1_SNIPER_OPEN_SEC else expiry_1
                 
+                # 2.1 INTELLIGENT GATE CHECK (T-25 before window shift)
+                # If we are approaching a new window and haven't asked the gate yet
+                if self.gate and current_epoch == active_target_epoch - 25:
+                    # Capture Binance Features for the Gate
+                    features = {
+                        "cvd": getattr(self.feed, 'latest_cvd', 0.0), # Assuming feed tracks this
+                        "ob_imbalance": getattr(self.feed, 'latest_imbalance', 0.0)
+                    }
+                    # Async task to not block the loop
+                    asyncio.create_task(self._consult_gate(f"btc-updown-5m-{active_target_epoch}", features))
+
                 if active_target_epoch != self.window_start_epoch:
                     if self.up_token and self.down_token:
                         self.last_window_tokens = [self.up_token, self.down_token]
@@ -499,3 +522,25 @@ class TemporalEngine:
         self.log_exec(f"📋 Generating Final Report...")
         if config.TELEGRAM_BOT_TOKEN and config.TELEGRAM_CHAT_ID:
             await self.send_telegram(report)
+            
+    async def _consult_gate(self, window_id: str, features: dict):
+        if not self.gate: return
+        
+        decision, adj = await self.gate.evaluate_window(window_id, features)
+        self.log_exec(f"\U0001f9e0 Intelligent Gate Decision: {decision} (Adj: {adj})")
+        
+        if decision == "SKIP":
+            self.window_active = False
+            self.log_exec(f"🛑 GATE REJECTED Window {window_id}. Disarming.")
+        elif decision == "WAIT":
+            # In WAIT mode, we might push the Sniper start time or be more selective
+            self.dynamic_target -= 0.05 # Be very stingy in WAIT mode
+            self.log_exec(f"⏳ GATE suggests WAIT. Tightening target by 0.05.")
+        
+        if adj != 0:
+            self.dynamic_target += adj
+            
+    def report_outcome_to_memory(self, window_id: str, outcome_data: dict):
+        """Bridge to send results back to Intelligent department."""
+        if self.gate:
+            self.gate.memory.update_outcome(window_id, outcome_data)

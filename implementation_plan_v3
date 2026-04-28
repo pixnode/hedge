@@ -1,0 +1,61 @@
+# Implementation Plan: ATS v3.0 Phase 1 (The Intelligent Foundation)
+
+This phase focuses on establishing the **Intelligent Department** as a decoupled entity from the **ATS Executor**. We will implement the data recording infrastructure (Pool Memory), the Intelligent Gate (Rule-Based Filtering), and real-time Smart Money tracking via Bullpen.fi.
+
+## User Review Required
+
+> [!IMPORTANT]
+> **Daily Retrain Cycle:** We have switched from Weekly to **Daily Retrain** (every 288 windows) to ensure the model stays fresh with the latest Polymarket dynamics.
+> **Bullpen CLI:** Integration requires the `bullpen` CLI to be installed on the machine.
+
+> [!NOTE]
+> **Telegram Verbosity:** Telegram notifications will now include Window Snapshots, Outcomes (WIN/LOSS), and Retrain stats. Ensure the bot is not in a shared channel if you prefer privacy for this volume of data.
+
+## Proposed Changes
+
+### 1. [NEW] Intelligent Department (`Intelligent/`)
+
+#### [NEW] [memory.py](file:///c:/Users/Razer/OneDrive/Desktop/hedge/Intelligent/memory.py)
+*   Implements `PoolMemory` class using SQLite.
+*   Schema: `window_id`, `confidence`, `convergence_score`, `news_impact`, `bullpen_signal`, `features_snapshot` (JSON), `ats_status`, `pnl`, `outcome`.
+*   **Telegram Logic:** Sends a snapshot notification when a new record is created.
+
+#### [NEW] [bullpen_connector.py](file:///c:/Users/Razer/OneDrive/Desktop/hedge/Intelligent/bullpen_connector.py)
+*   Interface for **Bullpen CLI**.
+*   Runs `bullpen polymarket data smart-money --output json`.
+*   Parses top trader signals to calculate a `bullpen_sentiment_score` (-1 to 1).
+
+#### [NEW] [openrouter_agent.py](file:///c:/Users/Razer/OneDrive/Desktop/hedge/Intelligent/openrouter_agent.py)
+*   Interface untuk **OpenRouter API**.
+*   Mengirimkan context (News + Bullpen Data + Binance Metrics) ke LLM (e.g., DeepSeek) untuk mendapatkan *Reasoning* dan *Confidence Score*.
+*   Bertindak sebagai "Final Judge" sebelum `gate_decision` dikeluarkan.
+
+#### [NEW] [feature_builder.py](file:///c:/Users/Razer/OneDrive/Desktop/hedge/Intelligent/feature_builder.py)
+*   Connects to Binance WebSocket (aggTrade, Depth).
+*   Calculates CVD (Cumulative Volume Delta) and Order Book Imbalance.
+*   Stores snapshots in memory for the Gate to consume at T-25.
+
+#### [NEW] [gate.py](file:///c:/Users/Razer/OneDrive/Desktop/hedge/Intelligent/gate.py)
+*   **Ensemble Engine:** Combines Binance features + CryptoPanic News + Bullpen Smart Money.
+*   **Daily Retrain Loop:** Triggers after every 288 records using `PoolMemory`.
+*   **Telegram Logic:** Sends a summary of the new model accuracy/loss after each retrain.
+
+---
+
+### 2. [MODIFY] ATS Executor (`ATS/core/`)
+
+#### [MODIFY] [temporal_engine.py](file:///c:/Users/Razer/OneDrive/Desktop/hedge/ATS/core/temporal_engine.py)
+*   **T-20 Gate Check:** Reads the `gate_decision` from the `Intelligent` department.
+*   **Outcome Reporting:** Immediately updates `PoolMemory` after window resolution.
+*   **Telegram Logic:** Sends WIN/LOSS status report per window.
+
+## Verification Plan
+
+### Automated Tests
+1.  **Bullpen Mock:** Verify that the bot can handle different JSON structures from the Bullpen CLI.
+2.  **Daily Retrain Stress Test:** Simulate 300 records and ensure the training loop starts without crashing the main ATS process.
+3.  **Notification Batching:** Ensure Telegram messages are sent asynchronously to avoid blocking the HFT loop.
+
+### Manual Verification
+*   Monitor Telegram for the new `[V3 RECORD]` and `[V3 OUTCOME]` message formats.
+*   Verify that `Intelligent/pool_memory.db` is growing daily and contains Bullpen sentiment data.

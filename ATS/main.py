@@ -1,10 +1,10 @@
 import asyncio
 import logging
-from config import config
-from poly_feed import PolyWebsocketFeed
-from executor import OrderExecutor
-from temporal_engine import TemporalEngine
-from ui import UI
+from core.config import config
+from core.poly_feed import PolyWebsocketFeed
+from core.executor import OrderExecutor
+from core.temporal_engine import TemporalEngine
+from core.ui import UI
 
 # Disable basic logging output to not mess up the rich UI
 logging.getLogger("poly_feed").setLevel(logging.ERROR)

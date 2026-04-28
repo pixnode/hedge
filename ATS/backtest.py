@@ -2,7 +2,7 @@ import random
 import csv
 import logging
 import math
-from config import config
+from core.config import config
 
 # Disable temporal_engine logs
 logging.getLogger("temporal_engine").setLevel(logging.CRITICAL)
@@ -335,11 +335,11 @@ def analyze_and_report(results, capital_saved, total_slippage_cost):
     print("\n" + "=" * 60)
 
     # Save to CSV with expanded fields
-    with open("backtest_report.csv", "w", newline="") as f:
+    with open("logs/backtest_report.csv", "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=["window", "status", "pnl", "panic", "up_entry", "down_entry", "combined", "invested"])
         writer.writeheader()
         writer.writerows(results)
-    print("  Detailed logs saved to 'backtest_report.csv'")
+    print("  Detailed logs saved to 'logs/backtest_report.csv'")
 
 if __name__ == "__main__":
     results, cap_saved, slip_cost = run_simulation(288)

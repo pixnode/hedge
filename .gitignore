@@ -1,16 +1,23 @@
-.env
-venv/
+# Python
 __pycache__/
-*.pyc
-.pytest_cache/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+
+# Environment / Secret
+.env
+Intelligent/config.env
+
+# Database
+Intelligent/pool_memory.db
+
+# Logs & Data
+ATS/logs/
+Intelligent/logs/
+*.csv
+*.pkl
+
+# IDE
 .vscode/
 .idea/
-ats_execution.log
-api_creds.json
-trades.csv
-backtest_report.csv
-scratch/
-*.png
-*.docx
-*.svg
-error.txt

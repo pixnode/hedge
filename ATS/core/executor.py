@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from py_clob_client_v2.client import ClobClient
-from config import Config
+from .config import Config
 
 # Robust Import for OrderArgs
 try:
