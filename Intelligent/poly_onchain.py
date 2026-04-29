@@ -20,7 +20,7 @@ class PolyOnChain:
                     active: true, 
                     closed: False,
                     groupItemTitle_contains: "Bitcoin",
-                    description_contains: "5m"
+                    question_contains: "5m"
                 }
                 orderBy: endDate
                 orderDirection: asc
