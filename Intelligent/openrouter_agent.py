@@ -57,7 +57,10 @@ class OpenRouterAgent:
                     {"role": "system", "content": "You are a quant trader. Output JSON only."},
                     {"role": "user", "content": prompt}
                 ],
-                "response_format": {"type": "json_object"}
+                "response_format": {"type": "json_object"},
+                "temperature": float(self.config.get("AI_TEMPERATURE", 0.1)),
+                "top_p": float(self.config.get("AI_TOP_P", 0.9)),
+                "max_tokens": int(self.config.get("AI_MAX_TOKENS", 1000))
             }
 
             print(f"DEBUG: AI is thinking (Model: {self.model})...")
