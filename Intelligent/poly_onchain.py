@@ -56,15 +56,16 @@ class PolyOnChain:
             return 0.0, "No Active Market Found"
 
         query = """
-        query MarketTrades($conditionId: String!, $minSize: Float!) {
+        query MarketTrades($conditionId: String!, $minSize: Float!, $minTimestamp: Int!) {
             trades(
                 where: { 
                     conditionId: $conditionId, 
-                    usdSize_gt: $minSize 
+                    usdSize_gt: $minSize,
+                    timestamp_gt: $minTimestamp
                 }
                 orderBy: timestamp
                 orderDirection: desc
-                first: 30
+                first: 10
             ) {
                 side
                 outcome
@@ -72,7 +73,11 @@ class PolyOnChain:
             }
         }
         """
-        variables = {"conditionId": condition_id, "minSize": min_size}
+        variables = {
+            "conditionId": condition_id, 
+            "minSize": min_size,
+            "minTimestamp": int(time.time()) - 300
+        }
 
         try:
             response = requests.post(self.endpoint, json={'query': query, 'variables': variables}, timeout=10)

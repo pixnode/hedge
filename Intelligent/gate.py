@@ -6,9 +6,11 @@ import asyncio
 from dotenv import load_dotenv
 from .memory import PoolMemory
 from .bullpen_connector import BullpenConnector
+from .poly_onchain import PolyOnChain
 from .openrouter_agent import OpenRouterAgent
 from .model_lgbm import IntelligentModel
 from .feature_builder import FeatureBuilder
+from datetime import datetime
 
 logger = logging.getLogger("intelligent.gate")
 
@@ -20,6 +22,7 @@ class IntelligentGate:
         
         self.memory = PoolMemory()
         self.bullpen = BullpenConnector()
+        self.poly_onchain = PolyOnChain()
         self.ml_model = IntelligentModel()
         self.feature_builder = FeatureBuilder()
         self.fb_started = False
@@ -45,6 +48,12 @@ class IntelligentGate:
         # 1. Fetch External Signals
         bullpen_data = self.bullpen.get_smart_money_signals()
         bullpen_score = bullpen_data.get("score", 0.0) if bullpen_data else 0.0
+        
+        # Fallback to On-Chain Polymarket if Bullpen is blind/0.0
+        if bullpen_score == 0.0:
+            logger.info("Bullpen blind/failed. Falling back to PolyOnChain...")
+            poly_score, _ = self.poly_onchain.get_onchain_direction_score(min_size=500)
+            bullpen_score = poly_score
         
         # 2. Get ML Prediction (LightGBM)
         ml_features = {
@@ -109,7 +118,10 @@ class IntelligentGate:
             "p_down": p_down,
             "convergence_score": convergence_score,
             "news_impact": 0.0, # News Agent placeholder
+            "dynamic_target_adj": 0.0,
             "gate_decision": decision,
+            "gate": "enable" if decision == "ENTER" else "disable",
+            "generated_at": datetime.utcnow().isoformat(),
             "ai_thought": ai_thought,
             "executor_msg": executor_msg,
             "features_snapshot": binance_features
