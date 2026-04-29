@@ -56,20 +56,24 @@ class IntelligentGate:
         reasoning = ai_analysis.get("reasoning", "")
         
         # 4. Final Logic Override (V3 Advanced Veto Rules)
+        skip_reason = "NONE"
         
         # Rule A: Skip if low confidence AND Bullpen is indecisive
         if confidence < self.conf_threshold and abs(bullpen_score) < 0.2:
             decision = "SKIP"
+            skip_reason = "low_confidence_veto"
             reasoning = "[Veto] Indecisive Market: Low AI Confidence & Low Whale Movement."
 
         # Rule B: Veto if AI Bullish but Whales are Strongly Bearish
         if decision == "ENTER" and ai_direction == "UP" and bullpen_score < -0.8:
             decision = "SKIP"
+            skip_reason = "bullpen_bearish_veto"
             reasoning = "[Veto] Bullpen Counter-Signal: Whales are heavily Bearish."
             
         # Rule C: Veto if AI Bearish but Whales are Strongly Bullish
         if decision == "ENTER" and ai_direction == "DOWN" and bullpen_score > 0.8:
             decision = "SKIP"
+            skip_reason = "bullpen_bullish_veto"
             reasoning = "[Veto] Bullpen Counter-Signal: Whales are heavily Bullish."
 
         # 5. Calculate Dynamic Target Adjustment
@@ -88,13 +92,19 @@ class IntelligentGate:
             "news_impact": 0.0,
             "dynamic_target_adj": dynamic_adj,
             "gate_decision": decision,
+            "skip_reason": skip_reason,
             "llm_reasoning": reasoning,
             "features_snapshot": binance_features
         }
         self.memory.record_window(record_data)
         
         # 7. Notify Telegram (V3 Record)
-        await self.notify_telegram_record(record_data, "Bullpen Signal Active")
+        # Include skip_reason in notification if it's a SKIP
+        signal_label = f"Bullpen Signal Active"
+        if skip_reason != "NONE":
+            signal_label = f"VETO: {skip_reason}"
+            
+        await self.notify_telegram_record(record_data, signal_label)
         
         return decision, dynamic_adj
 
