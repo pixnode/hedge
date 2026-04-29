@@ -8,6 +8,7 @@ import requests
 from dotenv import load_dotenv
 from .memory import PoolMemory
 from .bullpen_connector import BullpenConnector
+from .poly_onchain import PolyOnChain
 from .openrouter_agent import OpenRouterAgent
 
 logger = logging.getLogger("intelligent.gate")
@@ -20,6 +21,7 @@ class IntelligentGate:
     def __init__(self):
         self.memory = PoolMemory()
         self.bullpen = BullpenConnector()
+        self.onchain = PolyOnChain()
         
         # Load specific model for Gate
         gate_model = os.getenv("OPENROUTER_MODEL_GATE", "deepseek/deepseek-r1")
@@ -35,16 +37,27 @@ class IntelligentGate:
         """
         logger.info(f"Evaluating Gate for {window_id}...")
         
-        # 1. Fetch External Signals
+        # 1. Fetch External Signals (Bullpen + Direct On-Chain)
         bullpen_data = self.bullpen.get_smart_money_signals()
         bullpen_score = bullpen_data.get("score", 0.0) if bullpen_data else 0.0
+        
+        # NEW: Direct On-Chain Flow Analysis
+        up_id = binance_features.get("up_token_id")
+        down_id = binance_features.get("down_token_id")
+        onchain_score = self.onchain.get_directional_score(up_id, down_id) if up_id and down_id else 0.0
+        
+        # Final On-Chain Combined Score (Weighted)
+        # We give PolyOnChain high weight because it's direct data
+        combined_onchain_score = (bullpen_score * 0.3) + (onchain_score * 0.7)
         
         # 2. Consolidate Context for LLM Reasoning
         context = {
             "cvd": binance_features.get("cvd", 0.0),
             "ob_imbalance": binance_features.get("ob_imbalance", 0.0),
             "bullpen_score": bullpen_score,
-            "news_impact": 0.0 # Placeholder for now
+            "onchain_flow_score": onchain_score,
+            "combined_sentiment": combined_onchain_score,
+            "news_impact": 0.0
         }
         
         # 3. Get AI Reasoning Layer
@@ -66,16 +79,16 @@ class IntelligentGate:
             reasoning = "[Veto] Indecisive Market: Low AI Confidence & Low Whale Movement."
 
         # Rule B: Veto if AI Bullish but Whales are Strongly Bearish
-        if decision == "ENTER" and ai_direction == "UP" and bullpen_score < -0.8:
+        if decision == "ENTER" and ai_direction == "UP" and combined_onchain_score < -0.6:
             decision = "SKIP"
             skip_reason = "bullpen_bearish_veto"
-            reasoning = "[Veto] Bullpen Counter-Signal: Whales are heavily Bearish."
+            reasoning = f"[Veto] On-Chain Divergence: Whales/Flow are heavily Bearish ({combined_onchain_score})."
             
         # Rule C: Veto if AI Bearish but Whales are Strongly Bullish
-        if decision == "ENTER" and ai_direction == "DOWN" and bullpen_score > 0.8:
+        if decision == "ENTER" and ai_direction == "DOWN" and combined_onchain_score > 0.6:
             decision = "SKIP"
             skip_reason = "bullpen_bullish_veto"
-            reasoning = "[Veto] Bullpen Counter-Signal: Whales are heavily Bullish."
+            reasoning = f"[Veto] On-Chain Divergence: Whales/Flow are heavily Bullish ({combined_onchain_score})."
 
         gate_reasoning = reasoning # Final executor reasoning
 
@@ -118,7 +131,7 @@ class IntelligentGate:
             f"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
             f"🆔 Window: {record['window_id']}\n"
             f"\U0001f4ca Confidence: {record['confidence']:.2f}\n"
-            f"\U0001f4c8 Bullpen: {record['bullpen_sentiment']:.2f}\n"
+            f"\U0001f4c8 Flow Score: {record['bullpen_sentiment']:.2f}\n"
             f"\U0001f4f0 Signal: {news_summary}\n"
             f"\U0001f4ac AI Thought: {record['llm_reasoning']}\n"
             f"\u2699\ufe0f Executor: {record['gate_reasoning']}\n"

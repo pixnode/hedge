@@ -66,13 +66,16 @@ class FeatureBuilder:
         
         self.last_update = time.time()
 
-    def get_snapshot(self):
+    def get_snapshot(self, up_token=None, down_token=None):
         """Returns the current technical features for the Gate."""
-        return {
-            "cvd": round(self.cvd, 4),
+        features = {
+            "cvd": round(self.cvd, 2),
             "ob_imbalance": round(self.ob_imbalance, 4),
+            "up_token_id": up_token,
+            "down_token_id": down_token,
             "timestamp": self.last_update
         }
+        return features
 
     def reset_cvd(self):
         """Resets CVD every window if needed (or keep cumulative)."""

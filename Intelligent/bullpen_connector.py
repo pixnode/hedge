@@ -25,6 +25,10 @@ class BullpenConnector:
                 return {"score": 0.0, "direction_score": 0.0, "raw": None}
             
             raw_output = res.stdout.strip()
+            # EMERGENCY DUMP: Save to file for manual inspection
+            with open("debug_bullpen_raw.txt", "w") as f:
+                f.write(raw_output)
+                
             if not raw_output:
                 return {"score": 0.0, "direction_score": 0.0, "raw": None}
                 
