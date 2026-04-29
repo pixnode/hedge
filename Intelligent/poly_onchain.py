@@ -34,12 +34,17 @@ class PolyOnChain:
         """
         try:
             response = requests.post(self.endpoint, json={'query': query}, timeout=10)
-            data = response.json().get("data", {}).get("markets", [])
+            if response.status_code != 200:
+                print(f"DEBUG: Gamma API HTTP Error {response.status_code}")
+                return None, None
+                
+            res_json = response.json()
+            data = res_json.get("data", {}).get("markets", [])
             if data:
                 return data[0]["conditionId"], data[0]["question"]
             return None, None
         except Exception as e:
-            logger.error(f"Failed to find active condition: {e}")
+            print(f"DEBUG: Gamma API Request Failed: {e}")
             return None, None
 
     def get_onchain_direction_score(self, min_size=500):

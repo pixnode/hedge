@@ -136,9 +136,9 @@ class IntelligentGate:
         chat_id = os.getenv("TELEGRAM_CHAT_ID")
         
         if bot_token and chat_id:
-            url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-            payload = {"chat_id": chat_id, "text": msg}
             try:
-                await asyncio.to_thread(requests.post, url, json=payload, timeout=5)
+                url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+                payload = {"chat_id": chat_id, "text": message}
+                requests.post(url, json=payload, timeout=10)
             except Exception as e:
-                logger.error(f"Gate Telegram Notify Failed: {e}")
+                logger.error(f"Telegram Notify Failed: {e}")
