@@ -2,7 +2,6 @@ import subprocess
 import json
 import logging
 import os
-import time
 
 logger = logging.getLogger("intelligent.bullpen")
 
@@ -15,71 +14,58 @@ class BullpenConnector:
         cmd_base = vps_path if os.path.exists(vps_path) else "bullpen"
         
         try:
-            # Command v7.0: Requesting raw trades snapshot with PnL filter
-            # This ensures we get real action, not just ranking stats.
-            cmd = f"{cmd_base} polymarket data trades --min-pnl 1000 --limit 50 --output json"
+            # Perintah Utama: Ambil data kolektif smart-money
+            cmd = f"{cmd_base} polymarket data smart-money --output json"
             res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=15)
             
             if res.returncode != 0:
                 return {"score": 0.0, "direction_score": 0.0, "raw": None}
             
             raw_output = res.stdout.strip()
-            # EMERGENCY DUMP
-            with open("debug_bullpen_raw.txt", "w") as f:
-                f.write(raw_output)
-                
+            
+            # --- STRATEGI INSPEKSI DATA MENTAH (SESUAI INSTRUKSI) ---
+            try:
+                debug_path = "debug_bullpen_raw.txt"
+                with open(debug_path, "w") as f:
+                    f.write(raw_output)
+                print(f"DEBUG: Raw Bullpen data dumped to {debug_path} ({len(raw_output)} bytes)")
+            except Exception as e:
+                print(f"DEBUG: Failed to dump raw data: {e}")
+            # -------------------------------------------------------
+
             if not raw_output:
                 return {"score": 0.0, "direction_score": 0.0, "raw": None}
                 
             data = json.loads(raw_output)
-            return self._parse_v7_realtime(data)
+            return self._parse_v6_deep(data)
             
         except Exception as e:
-            logger.error(f"Failed to fetch Bullpen v7: {e}")
+            logger.error(f"Failed to fetch Bullpen v6: {e}")
             return {"score": 0.0, "direction_score": 0.0, "raw": None}
 
-    def _parse_v7_realtime(self, data):
+    def _parse_v6_deep(self, data):
         """
-        Parser v7.0: Filters trades from the last 5 minutes and calculates direction.
+        Parser v6.0: Menunggu hasil inspeksi debug_bullpen_raw.txt.
+        Saat ini menggunakan logika pencarian kata kunci yang sangat luas.
         """
         try:
             up_votes = 0
             down_votes = 0
-            now = time.time()
             
-            # Data can be a list or a dict containing a list
-            trades = data.get("trades", []) if isinstance(data, dict) else data
-            if not isinstance(trades, list):
-                return {"score": 0.0, "direction_score": 0.0}
-
-            for t in trades:
-                # 1. Time Filter: Only last 5 minutes (300s)
-                trade_ts = t.get("timestamp", 0)
-                if trade_ts > 0 and (now - trade_ts) > 300:
-                    continue
+            signals = data.get("signals", []) if isinstance(data, dict) else []
+            
+            for s in signals:
+                title = str(s.get("title", "")).upper()
+                summary = str(s.get("summary", "")).upper()
+                text = title + " " + summary
                 
-                market = str(t.get("market_name", "")).upper()
-                side = str(t.get("side", "")).upper()
-                outcome = str(t.get("outcome", "")).upper()
-                
-                # We only care about BTC markets for this bot
-                if "BTC" not in market:
-                    continue
-
-                is_up = False
-                is_down = False
-                
-                # Standard Directional Logic
-                if "UP" in market:
-                    if (side == "BUY" and outcome == "YES") or (side == "SELL" and outcome == "NO"): is_up = True
-                    if (side == "BUY" and outcome == "NO") or (side == "SELL" and outcome == "YES"): is_down = True
-                elif "DOWN" in market:
-                    if (side == "BUY" and outcome == "YES") or (side == "SELL" and outcome == "NO"): is_down = True
-                    if (side == "BUY" and outcome == "NO") or (side == "SELL" and outcome == "YES"): is_up = True
+                # Keywords Pencarian Arah
+                is_up = any(k in text for k in ["UP", "BULLISH", "LONG", "YES", "BUY"])
+                is_down = any(k in text for k in ["DOWN", "BEARISH", "SHORT", "NO", "SELL"])
                 
                 if is_up: up_votes += 1
                 if is_down: down_votes += 1
-
+                
             total = up_votes + down_votes
             direction_score = 0.0
             if total > 0:
@@ -88,9 +74,9 @@ class BullpenConnector:
             return {
                 "score": round(direction_score, 2),
                 "direction_score": round(direction_score, 2),
-                "total_recent_trades": total,
+                "total_votes": total,
                 "raw": data
             }
         except Exception as e:
-            logger.error(f"Error in Bullpen v7 Parser: {e}")
+            logger.error(f"Error in Bullpen v6 Parser: {e}")
             return {"score": 0.0, "direction_score": 0.0, "raw": data}

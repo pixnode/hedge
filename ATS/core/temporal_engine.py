@@ -215,19 +215,11 @@ class TemporalEngine:
                 # 2.1 INTELLIGENT GATE CHECK (T-25 before window shift)
                 # If we are approaching a new window and haven't asked the gate yet
                 if self.gate and current_epoch == active_target_epoch - 25:
-                    # Capture Binance Features with Token IDs for On-Chain Analysis
-                    up_id = self.next_up_token or self.up_token
-                    down_id = self.next_down_token or self.down_token
-                    
-                    if self.features:
-                        features = self.features.get_snapshot(up_token=up_id, down_token=down_id)
-                    else:
-                        features = {
-                            "cvd": getattr(self.feed, 'latest_cvd', 0.0),
-                            "ob_imbalance": getattr(self.feed, 'latest_imbalance', 0.0),
-                            "up_token_id": up_id,
-                            "down_token_id": down_id
-                        }
+                    # Capture Binance Features for the Gate
+                    features = {
+                        "cvd": getattr(self.feed, 'latest_cvd', 0.0), # Assuming feed tracks this
+                        "ob_imbalance": getattr(self.feed, 'latest_imbalance', 0.0)
+                    }
                     # Async task to not block the loop
                     asyncio.create_task(self._consult_gate(f"btc-updown-5m-{active_target_epoch}", features))
 
