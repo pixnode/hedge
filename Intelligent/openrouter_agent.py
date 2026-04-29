@@ -12,7 +12,8 @@ class OpenRouterAgent:
         self.config = self._load_env(env_path)
         
         self.api_key = api_key or self.config.get("OPENROUTER_API_KEY")
-        self.model = model or self.config.get("OPENROUTER_MODEL", "google/gemini-2.0-flash-001")
+        # Prioritize: 1. Passed model argument, 2. config.env, 3. global fallback
+        self.model = model or self.config.get("OPENROUTER_MODEL_GATE") or self.config.get("OPENROUTER_MODEL", "moonshotai/kimi-k2.5:nitro")
         self.url = "https://openrouter.ai/api/v1/chat/completions"
 
     def _load_env(self, path):
