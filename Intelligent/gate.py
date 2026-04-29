@@ -14,6 +14,10 @@ logger = logging.getLogger("intelligent.gate")
 
 class IntelligentGate:
     def __init__(self):
+        # Load environment variables from config.env
+        env_path = os.path.join(os.path.dirname(__file__), "config.env")
+        load_dotenv(env_path)
+        
         self.memory = PoolMemory()
         self.bullpen = BullpenConnector()
         self.ml_model = IntelligentModel()
@@ -21,7 +25,7 @@ class IntelligentGate:
         self.fb_started = False
         
         # Load specific model for Gate
-        gate_model = os.getenv("OPENROUTER_MODEL_GATE", "deepseek/deepseek-r1")
+        gate_model = os.getenv("OPENROUTER_MODEL_GATE", "moonshotai/kimi-k2.5:nitro")
         self.ai = OpenRouterAgent(model=gate_model)
         
         # Thresholds
@@ -75,17 +79,21 @@ class IntelligentGate:
         signal_label = "Hybrid Intelligence Active"
         executor_msg = "Market condition stable."
         
-        # Rule: Confidence < threshold (MD 3.1)
-        if confidence < self.conf_threshold:
+        # Rule A: AI Explicitly Decides to SKIP
+        if decision == "SKIP":
+            executor_msg = "AI analyzed the data and decided to SKIP this window."
+            
+        # Rule B: Confidence < threshold (System Veto)
+        elif confidence < self.conf_threshold:
             decision = "SKIP"
             executor_msg = f"[Veto] Low Conviction: {confidence:.2f} < {self.conf_threshold}"
             
-        # Rule: Convergence Score < 0.3 (MD 3.1)
+        # Rule C: Convergence Score < 0.3 (System Veto)
         elif convergence_score < 0.3:
             decision = "SKIP"
             executor_msg = f"[Veto] Smart Money Diverge: Convergence {convergence_score:.2f} < 0.3"
 
-        # Rule: Extreme ML Divergence
+        # Rule D: Extreme ML Divergence (System Veto)
         elif decision == "ENTER" and ml_score < 0.25:
             decision = "SKIP"
             executor_msg = f"[Veto] ML Statistical Warning: Score {ml_score:.2f} too low."
