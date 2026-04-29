@@ -53,27 +53,27 @@ class BullpenConnector:
                 if any(k in summary for k in ["BULLISH", "BUYING", "LONG"]): up_votes += 1
                 if any(k in summary for k in ["BEARISH", "SELLING", "SHORT"]): down_votes += 1
             
+            if signals:
+                first_sig = signals[0]
+                print(f"DEBUG: First Bullpen Signal: {first_sig.get('title', 'No Title')} | {first_sig.get('summary', 'No Summary')[:50]}...")
+
             for s in signals:
                 title = str(s.get("title", "")).upper()
                 summary = str(s.get("summary", "")).upper()
+                side = str(s.get("side", "") or "").upper()
+                outcome = str(s.get("outcome", "") or "").upper()
                 text = title + " " + summary
                 
-                # Logic for directional signals
-                # Example: "5 traders bought YES on BTC-UP"
-                is_up = any(k in text for k in ["UP", "BULLISH", "LONG", "YES", "BUY"])
-                is_down = any(k in text for k in ["DOWN", "BEARISH", "SHORT", "NO", "SELL"])
+                # Logic v6.0: Extremely inclusive
+                is_up = any(k in text for k in ["UP", "BULLISH", "LONG", "YES", "BUY"]) or (side == "BUY" and outcome == "YES")
+                is_down = any(k in text for k in ["DOWN", "BEARISH", "SHORT", "NO", "SELL"]) or (side == "BUY" and outcome == "NO")
                 
-                # Cross-reference with market type
-                if "UP" in text:
-                    if is_up: up_votes += 2
-                    if is_down: down_votes += 2 # Wait, this logic needs to be careful
+                if is_up: up_votes += 1
+                if is_down: down_votes += 1
                 
-                # Simpler robust logic:
-                if "BULLISH" in text or "LONG" in text: up_votes += 2
-                if "BEARISH" in text or "SHORT" in text: down_votes += 2
-                
-                if "BUY" in title and "UP" in title: up_votes += 3
-                if "BUY" in title and "DOWN" in title: down_votes += 3
+                # Extra weight for clear directional keywords
+                if "BULLISH" in text or "LONG" in text: up_votes += 1
+                if "BEARISH" in text or "SHORT" in text: down_votes += 1
 
             total = up_votes + down_votes
             direction_score = 0.0
