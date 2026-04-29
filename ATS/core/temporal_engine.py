@@ -57,7 +57,7 @@ class TemporalEngine:
         self.queue = queue
         self.feed = feed
         self.executor = executor
-        self.gate = IntelligentGate() if IntelligentGate else None
+        self.gate = IntelligentGate() if IntelligentGate and config.ENABLE_INTELLIGENT_GATE else None
         
         # Paper Account State
         self.paper_balance = config.INITIAL_PAPER_BALANCE

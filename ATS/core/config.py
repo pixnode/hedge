@@ -28,6 +28,7 @@ class Config:
     GOLDEN_WINDOW_END_SEC: int = int(os.getenv("GOLDEN_WINDOW_END_SEC", "20")) # Legacy, now Pillar 3 transition
     
     # ATS v2.0 Parameters
+    ENABLE_INTELLIGENT_GATE: bool = os.getenv("ENABLE_INTELLIGENT_GATE", "True").lower() in ("true", "1", "yes")
     P1_SNIPER_OPEN_SEC: int = int(os.getenv("P1_SNIPER_OPEN_SEC", "10"))
     P1_SNIPER_CLOSE_SEC: int = int(os.getenv("P1_SNIPER_CLOSE_SEC", "10"))
     P2_SLIPPAGE: float = float(os.getenv("P2_SLIPPAGE", "0.13"))
