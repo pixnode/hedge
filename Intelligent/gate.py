@@ -69,6 +69,8 @@ class IntelligentGate:
         confidence = ai_analysis.get("confidence", 0.5)
         decision = ai_analysis.get("decision", "WAIT")
         ai_thought = ai_analysis.get("reasoning", "")
+        if not ai_thought:
+            ai_thought = "AI provided no specific reasoning, likely due to neutral indicators (CVD/OB at 0)."
 
         # 4. Hybrid Logic (Interface Contract Alignment)
         p_up = ml_score

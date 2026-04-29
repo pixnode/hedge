@@ -53,11 +53,12 @@ class FeatureBuilder:
                 self.cvd -= qty
                 
         # 2. Process Depth for Imbalance
-        elif "depth" in data.get("s", "").lower() or not stream: # Depth update
-            bids = data.get("b", [])
-            asks = data.get("a", [])
+        elif "bids" in data or "b" in data: # Depth update (bids/asks present)
+            bids = data.get("b", data.get("bids", []))
+            asks = data.get("a", data.get("asks", []))
             
             if bids and asks:
+                # Get top 5 levels
                 best_bid_vol = sum(float(b[1]) for b in bids[:5])
                 best_ask_vol = sum(float(a[1]) for a in asks[:5])
                 

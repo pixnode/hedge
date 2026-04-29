@@ -104,11 +104,11 @@ class OpenRouterAgent:
         - ML Prediction Score (LightGBM): {context_data.get('ml_prediction_score')}
         - Bullpen Sentiment: {context_data.get('bullpen_sentiment')}
         
-        Provide JSON:
+        Provide JSON ONLY. The 'reasoning' field MUST NOT be empty.
         {{
-            "confidence": float,
+            "confidence": float (0.0 to 1.0),
             "decision": "ENTER/SKIP/WAIT",
-            "reasoning": "string"
+            "reasoning": "A detailed explanation of why this decision was made."
         }}
         """
         return self.ask_ai(prompt)
