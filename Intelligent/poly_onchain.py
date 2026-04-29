@@ -9,11 +9,47 @@ class PolyOnChain:
     def __init__(self):
         self.endpoint = "https://gamma-api.polymarket.com/query"
 
-    def get_whale_direction_score(self, condition_id, min_size=500):
+    def get_active_btc_condition(self):
         """
-        Queries Polymarket Gamma API for recent whale trades on a specific condition.
-        Calculates a Directional Score based on (Buy_YES - Buy_NO) / Total.
+        Finds the current active BTC 5m market condition_id.
         """
+        query = """
+        query Markets($search: String) {
+            markets(
+                where: { 
+                    active: true, 
+                    closed: False,
+                    groupItemTitle_contains: "Bitcoin",
+                    description_contains: "5m"
+                }
+                orderBy: endDate
+                orderDirection: asc
+                first: 1
+            ) {
+                conditionId
+                question
+                slug
+            }
+        }
+        """
+        try:
+            response = requests.post(self.endpoint, json={'query': query}, timeout=10)
+            data = response.json().get("data", {}).get("markets", [])
+            if data:
+                return data[0]["conditionId"], data[0]["question"]
+            return None, None
+        except Exception as e:
+            logger.error(f"Failed to find active condition: {e}")
+            return None, None
+
+    def get_onchain_direction_score(self, min_size=500):
+        """
+        Calculates (Volume_YES - Volume_NO) / Total from real-time on-chain trades.
+        """
+        condition_id, question = self.get_active_btc_condition()
+        if not condition_id:
+            return 0.0, "No Active Market Found"
+
         query = """
         query MarketTrades($conditionId: String!, $minSize: Float!) {
             trades(
@@ -23,63 +59,50 @@ class PolyOnChain:
                 }
                 orderBy: timestamp
                 orderDirection: desc
-                first: 20
+                first: 30
             ) {
                 side
                 outcome
                 usdSize
-                timestamp
             }
         }
         """
-        variables = {
-            "conditionId": condition_id,
-            "minSize": min_size
-        }
+        variables = {"conditionId": condition_id, "minSize": min_size}
 
         try:
             response = requests.post(self.endpoint, json={'query': query, 'variables': variables}, timeout=10)
-            if response.status_code != 200:
-                return 0.0
+            trades = response.json().get("data", {}).get("trades", [])
+            
+            if not trades:
+                return 0.0, f"No Whale Trades (> ${min_size}) on {question}"
 
-            data = response.json().get("data", {}).get("trades", [])
-            if not data:
-                return 0.0
+            yes_vol = 0.0
+            no_vol = 0.0
 
-            up_vol = 0.0
-            down_vol = 0.0
-
-            for t in data:
+            for t in trades:
                 side = t.get("side") # BUY/SELL
-                outcome = t.get("outcome") # "0" for YES, "1" for NO (usually)
+                outcome = t.get("outcome") # "0" is YES, "1" is NO
                 size = float(t.get("usdSize", 0))
 
-                # Logic: We assume outcome "0" is UP/YES and "1" is DOWN/NO
-                # In BTC-UP market: Buying YES (0) is Bullish.
-                # In BTC-DOWN market: Buying YES (0) is Bearish.
-                # This needs to be calibrated per market.
-                
-                if outcome == "0": # YES
-                    if side == "BUY": up_vol += size
-                    else: down_vol += size
-                else: # NO
-                    if side == "BUY": down_vol += size
-                    else: up_vol += size
+                if side == "BUY":
+                    if outcome == "0": yes_vol += size # Buy YES
+                    else: no_vol += size # Buy NO
+                else:
+                    if outcome == "0": no_vol += size # Sell YES (Bearish)
+                    else: yes_vol += size # Sell NO (Bullish)
 
-            total = up_vol + down_vol
+            total = yes_vol + no_vol
             if total > 0:
-                score = (up_vol - down_vol) / total
-                return round(score, 2)
+                score = (yes_vol - no_vol) / total
+                return round(score, 2), f"Analyzed ${total:,.0f} Whale Volume on {question}"
             
-            return 0.0
+            return 0.0, "Zero Whale Volume"
 
         except Exception as e:
-            logger.error(f"Failed to fetch On-Chain data: {e}")
-            return 0.0
+            logger.error(f"On-Chain Error: {e}")
+            return 0.0, "API Error"
 
 if __name__ == "__main__":
-    # Test with a known condition_id
     poc = PolyOnChain()
-    # Example condition_id
-    score = poc.get_whale_direction_score("0x...") 
-    print(f"On-Chain Whale Score: {score}")
+    score, msg = poc.get_onchain_direction_score()
+    print(f"Score: {score} | {msg}")

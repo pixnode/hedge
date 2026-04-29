@@ -41,19 +41,18 @@ class IntelligentGate:
         bullpen_data = self.bullpen.get_smart_money_signals()
         bullpen_score = bullpen_data.get("score", 0.0) if bullpen_data else 0.0
         
-        # Emergency Eye: Fetch On-Chain Data directly (Using Window ID to find context if needed)
-        # For BTC-UP/DOWN markets, we'd need the condition_id. 
-        # For now, we use a placeholder or derived score.
-        onchain_score = self.onchain.get_whale_direction_score("0x6280490b8f6c5e7b514b8a4f6c449c47e8a93946") # Example BTC-UP Condition
+        # PRIMARY EYE: Real-time On-Chain Whale Trades
+        onchain_score, onchain_msg = self.onchain.get_onchain_direction_score()
         
         # 2. Consolidate Context for LLM Reasoning
         context = {
             "cvd": binance_features.get("cvd", 0.0),
             "ob_imbalance": binance_features.get("ob_imbalance", 0.0),
-            "bullpen_score": bullpen_score,
-            "onchain_score": onchain_score,
+            "bullpen_volume_score": bullpen_score,
+            "onchain_whale_sentiment": onchain_score, # The real direction
             "news_impact": 0.0 
         }
+        logger.info(f"On-Chain Signal: {onchain_msg} (Score: {onchain_score})")
         
         # 3. Get AI Reasoning Layer
         print(f"DEBUG: Requesting AI Analysis for {window_id}...")
@@ -64,26 +63,26 @@ class IntelligentGate:
         ai_direction = ai_analysis.get("direction", "NONE")
         reasoning = ai_analysis.get("reasoning", "")
         
-        # 4. Final Logic Override (V3 Advanced Veto Rules)
+        # 4. Final Logic Override (V4 On-Chain Veto Rules)
         skip_reason = "NONE"
         
-        # Rule A: Skip if low confidence AND Bullpen is indecisive
-        if confidence < self.conf_threshold and abs(bullpen_score) < 0.2:
+        # Rule A: Skip if low confidence AND On-Chain whales are silent
+        if confidence < self.conf_threshold and abs(onchain_score) < 0.2:
             decision = "SKIP"
             skip_reason = "low_confidence_veto"
-            reasoning = "[Veto] Indecisive Market: Low AI Confidence & Low Whale Movement."
+            reasoning = f"[Veto] Indecisive: Low AI Conf & No On-Chain Whale Action ({onchain_score})."
 
-        # Rule B: Veto if AI Bullish but Whales are Strongly Bearish
-        if decision == "ENTER" and ai_direction == "UP" and bullpen_score < -0.8:
+        # Rule B: Veto if AI Bullish but On-Chain Whales are Strongly Bearish
+        if decision == "ENTER" and ai_direction == "UP" and onchain_score < -0.7:
             decision = "SKIP"
-            skip_reason = "bullpen_bearish_veto"
-            reasoning = "[Veto] Bullpen Counter-Signal: Whales are heavily Bearish."
+            skip_reason = "onchain_bearish_veto"
+            reasoning = f"[Veto] On-Chain Divergence: Whales are Bearish ({onchain_score})."
             
-        # Rule C: Veto if AI Bearish but Whales are Strongly Bullish
-        if decision == "ENTER" and ai_direction == "DOWN" and bullpen_score > 0.8:
+        # Rule C: Veto if AI Bearish but On-Chain Whales are Strongly Bullish
+        if decision == "ENTER" and ai_direction == "DOWN" and onchain_score > 0.7:
             decision = "SKIP"
-            skip_reason = "bullpen_bullish_veto"
-            reasoning = "[Veto] Bullpen Counter-Signal: Whales are heavily Bullish."
+            skip_reason = "onchain_bullish_veto"
+            reasoning = f"[Veto] On-Chain Divergence: Whales are Bullish ({onchain_score})."
 
         # 5. Calculate Dynamic Target Adjustment
         dynamic_adj = 0.0
@@ -123,8 +122,8 @@ class IntelligentGate:
             f"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
             f"🆔 Window: {record['window_id']}\n"
             f"\U0001f4ca Confidence: {record['confidence']:.2f}\n"
-            f"\U0001f4c8 Bullpen: {record['bullpen_sentiment']:.2f}\n"
-            f"\U0001f517 On-Chain: {record.get('onchain_score', 0.0):.2f}\n"
+            f"\U0001f517 On-Chain: {onchain_score:.2f}\n"
+            f"\U0001f4c8 Bullpen Vol: {record['bullpen_sentiment']:.2f}\n"
             f"\U0001f4f0 Signal: {news_summary}\n"
             f"\U0001f4ac AI: {record['llm_reasoning']}\n"
             f"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501"
