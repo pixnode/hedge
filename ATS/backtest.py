@@ -342,5 +342,9 @@ def analyze_and_report(results, capital_saved, total_slippage_cost):
     print("  Detailed logs saved to 'logs/backtest_report.csv'")
 
 if __name__ == "__main__":
-    results, cap_saved, slip_cost = run_simulation(288)
+    # Override config for this audit
+    config.TARGET_MAX_ENTRY = 0.35
+    config.MAX_HEDGE_COST = 0.90
+    
+    results, cap_saved, slip_cost = run_simulation(1000)
     analyze_and_report(results, cap_saved, slip_cost)

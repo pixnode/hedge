@@ -350,7 +350,12 @@ class TemporalEngine:
                         poll_timeout = config.P2_POLL_INTERVAL
 
                 try:
-                    event: OrderBookEvent = await asyncio.wait_for(self.queue.get(), timeout=poll_timeout)
+                    event = await asyncio.wait_for(self.queue.get(), timeout=poll_timeout)
+                    # Sample logging for verification
+                    if random.random() < 0.05:
+                        self.log_exec(f"🔔 Price Update: {event.asset_id[:6]}... Ask: {event.ask:.4f}")
+                
+                    # Update current view
                     if event.asset_id == self.up_token:
                         self.last_up_ask = event.ask
                         self.last_up_bid = event.bid
