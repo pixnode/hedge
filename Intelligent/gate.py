@@ -7,7 +7,11 @@ from dotenv import load_dotenv
 from .memory import PoolMemory
 from .bullpen_connector import BullpenConnector
 from .openrouter_agent import OpenRouterAgent
+from .memory import PoolMemory
+from .bullpen_connector import BullpenConnector
+from .openrouter_agent import OpenRouterAgent
 from .model_lgbm import IntelligentModel
+from .feature_builder import FeatureBuilder
 
 logger = logging.getLogger("intelligent.gate")
 
@@ -16,6 +20,10 @@ class IntelligentGate:
         self.memory = PoolMemory()
         self.bullpen = BullpenConnector()
         self.ml_model = IntelligentModel()
+        self.feature_builder = FeatureBuilder()
+        
+        # Start Feature Builder in background
+        asyncio.create_task(self.feature_builder.start())
         
         # Load specific model for Gate
         gate_model = os.getenv("OPENROUTER_MODEL_GATE", "deepseek/deepseek-r1")

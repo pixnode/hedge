@@ -98,6 +98,7 @@ class TemporalEngine:
         
         self.pillar1_open = False
         self.pillar1_expired = False
+        self.gate_consulted_epoch = 0 # Track which epoch we consulted for
         self.pillar1_got_one = False
         self.overlap_zone_active = False
         self.panic_bid_tracked = 0.0
@@ -214,12 +215,12 @@ class TemporalEngine:
                 
                 # 2.1 INTELLIGENT GATE CHECK (T-25 before window shift)
                 # If we are approaching a new window and haven't asked the gate yet
-                if self.gate and current_epoch == active_target_epoch - 25:
-                    # Capture Binance Features for the Gate
-                    features = {
-                        "cvd": getattr(self.feed, 'latest_cvd', 0.0), # Assuming feed tracks this
-                        "ob_imbalance": getattr(self.feed, 'latest_imbalance', 0.0)
-                    }
+                if self.gate and self.gate_consulted_epoch != active_target_epoch and 20 <= (active_target_epoch - current_epoch) <= 30:
+                    self.gate_consulted_epoch = active_target_epoch
+                    
+                    # Capture Binance Features from the Gate's own FeatureBuilder
+                    features = self.gate.feature_builder.get_snapshot()
+                    
                     # Async task to not block the loop
                     asyncio.create_task(self._consult_gate(f"btc-updown-5m-{active_target_epoch}", features))
 
