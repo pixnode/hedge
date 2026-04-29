@@ -25,6 +25,8 @@ class BullpenConnector:
                 return None
             
             data = json.loads(result.stdout)
+            # Log raw data summary
+            print(f"DEBUG: Bullpen Raw Data received ({len(str(data))} bytes)")
             return self._parse_sentiment(data)
             
         except Exception as e:
