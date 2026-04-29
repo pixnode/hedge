@@ -58,6 +58,11 @@ class TemporalEngine:
         self.feed = feed
         self.executor = executor
         self.gate = IntelligentGate() if IntelligentGate else None
+        
+        # Paper Account State
+        self.paper_balance = config.INITIAL_PAPER_BALANCE
+        print(f"💰 PAPER WALLET INITIALIZED: ${self.paper_balance:.2f}")
+        
         print(f"DEBUG: Intelligent Gate Initialized: {self.gate is not None}")
         if self.gate is None:
             print("DEBUG: IntelligentGate is None. Check imports or gate.py syntax.")
@@ -272,7 +277,7 @@ class TemporalEngine:
                     self.leg1_price = 0.0
                     self.dynamic_target = config.TARGET_MAX_ENTRY
                     self.panic_mode = False
-                    self.pillar1_open = True
+                    self.pillar1_open = False # Start closed until T-10
                     self.pillar1_expired = False
                     self.pillar1_got_one = False
                     self.overlap_zone_active = False
@@ -317,6 +322,16 @@ class TemporalEngine:
 
                 # ATS v2.0 State Transitions
                 if self.window_active:
+                    # PILLAR 1: SNIPER (OPEN)
+                    if not self.pillar1_open and not self.pillar1_expired and seconds_into_window >= -config.P1_SNIPER_OPEN_SEC:
+                        if config.PAPER_TRADING_MODE and self.paper_balance < config.BASE_TRADE_USD:
+                            self.log_exec(f"⚠️ INSUFFICIENT PAPER BALANCE: ${self.paper_balance:.2f} < ${config.BASE_TRADE_USD}. Skipping.")
+                            self.window_active = False
+                            continue
+                            
+                        self.pillar1_open = True
+                        self.log_exec(f"🎯 PILLAR 1 SNIPER ACTIVE: Targeting {config.BASE_TRADE_USD} shares each")
+
                     # Pillar 1 Expiration (T+10)
                     if self.pillar1_open and seconds_into_window > config.P1_SNIPER_CLOSE_SEC:
                         self.pillar1_open = False
@@ -512,8 +527,13 @@ class TemporalEngine:
     async def send_cycle_done_report(self):
         combined = self.up_fill_price + self.down_fill_price
         pnl_per_share = 1.0 - combined
-        total_pnl = pnl_per_share * config.BASE_TRADE_USD
+        total_pnl = (pnl_per_share * config.BASE_TRADE_USD) - (config.BASE_TRADE_USD * 2 * 0.01) # Minus roughly 1% execution tax mock
         
+        # Update Paper Balance
+        if config.PAPER_TRADING_MODE:
+            self.paper_balance += total_pnl
+            self.log_exec(f"💰 PAPER BALANCE UPDATED: ${self.paper_balance:.2f} (PnL: {total_pnl:+.3f})")
+
         dt = datetime.datetime.fromtimestamp(self.window_start_epoch)
         window_time_str = dt.strftime("%H:%M %b %d")
         

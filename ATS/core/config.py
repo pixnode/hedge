@@ -49,6 +49,7 @@ class Config:
     # Position Sizing
     BASE_TRADE_USD: float = float(os.getenv("BASE_TRADE_USD", "2.0"))
     MAX_POSITION_USD: float = float(os.getenv("MAX_POSITION_USD", "5.0"))
+    INITIAL_PAPER_BALANCE: float = float(os.getenv("INITIAL_PAPER_BALANCE", "10.0"))
     
     # Proxy & Security
     POLY_PROXY_ADDRESS: str = os.getenv("POLY_PROXY_ADDRESS", "")
