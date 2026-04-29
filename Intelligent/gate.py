@@ -41,6 +41,7 @@ class IntelligentGate:
         }
         
         # 3. Get AI Reasoning Layer
+        print(f"DEBUG: Context sent to AI: {json.dumps(context)}")
         print(f"DEBUG: Requesting AI Analysis for {window_id}...")
         ai_analysis = self.ai.analyze_market_context(context)
         

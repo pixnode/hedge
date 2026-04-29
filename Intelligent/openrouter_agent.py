@@ -67,8 +67,29 @@ class OpenRouterAgent:
             response = requests.post(self.url, headers=headers, json=payload, timeout=60)
             result = response.json()
             
+            if 'choices' not in result:
+                print(f"DEBUG: AI Raw Error: {result}")
+                return {"confidence": 0.5, "decision": "WAIT", "reasoning": "AI API Error"}
+
             content = result['choices'][0]['message']['content']
-            return json.loads(content)
+            print(f"DEBUG: AI Raw Content: {content[:200]}...")
+            
+            # Sanitizer: AI often wraps JSON in code blocks or thinking text
+            temp_content = content
+            if "```json" in temp_content:
+                temp_content = temp_content.split("```json")[1].split("```")[0].strip()
+            elif "```" in temp_content:
+                temp_content = temp_content.split("```")[1].split("```")[0].strip()
+            
+            try:
+                return json.loads(temp_content)
+            except:
+                # Last resort: try to find anything that looks like JSON
+                import re
+                match = re.search(r'\{.*\}', temp_content, re.DOTALL)
+                if match:
+                    return json.loads(match.group())
+                raise
             
         except Exception as e:
             logger.error(f"AI Error: {e}")
