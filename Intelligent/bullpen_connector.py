@@ -55,10 +55,11 @@ class BullpenConnector:
                 text = (str(s.get("title", "")) + " " + str(s.get("summary", ""))).upper()
                 side = str(s.get("side", "") or "").upper()
                 
-                # Logic: Find bullish/bearish indicators
-                is_up = any(k in text for k in ["UP", "BULLISH", "LONG", "BUY"]) or side == "BUY"
-                is_down = any(k in text for k in ["DOWN", "BEARISH", "SHORT", "SELL"]) or side == "SELL"
+                # Logic: Find bullish/bearish indicators with expanded keyword list
+                is_up = any(k in text for k in ["UP", "BULLISH", "LONG", "BUY", "BTC-UP", "BITCOIN-UP"]) or side == "BUY"
+                is_down = any(k in text for k in ["DOWN", "BEARISH", "SHORT", "SELL", "BTC-DOWN", "BITCOIN-DOWN"]) or side == "SELL"
                 
+                # Weighting: You can increase weight based on volume in text if available
                 if is_up: up_weight += 1
                 if is_down: down_weight += 1
             
