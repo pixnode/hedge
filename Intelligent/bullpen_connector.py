@@ -52,8 +52,11 @@ class BullpenConnector:
             down_weight = 0
             
             for s in signals:
-                text = (str(s.get("title", "")) + " " + str(s.get("summary", ""))).upper()
+                title = s.get("title", "")
+                text = (str(title) + " " + str(s.get("summary", ""))).upper()
                 side = str(s.get("side", "") or "").upper()
+                
+                print(f"DEBUG: Bullpen Signal Found: {title}")
                 
                 # Logic: Find bullish/bearish indicators with expanded keyword list
                 is_up = any(k in text for k in ["UP", "BULLISH", "LONG", "BUY", "BTC-UP", "BITCOIN-UP"]) or side == "BUY"
