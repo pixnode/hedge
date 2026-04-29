@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from .memory import PoolMemory
 from .bullpen_connector import BullpenConnector
 from .openrouter_agent import OpenRouterAgent
+from .model_lgbm import IntelligentModel
 
 logger = logging.getLogger("intelligent.gate")
 
@@ -14,6 +15,7 @@ class IntelligentGate:
     def __init__(self):
         self.memory = PoolMemory()
         self.bullpen = BullpenConnector()
+        self.ml_model = IntelligentModel()
         
         # Load specific model for Gate
         gate_model = os.getenv("OPENROUTER_MODEL_GATE", "deepseek/deepseek-r1")
@@ -32,10 +34,19 @@ class IntelligentGate:
         bullpen_data = self.bullpen.get_smart_money_signals()
         bullpen_score = bullpen_data.get("score", 0.0) if bullpen_data else 0.0
         
-        # 2. Consolidate Context for AI
+        # 2. Get ML Prediction (LightGBM)
+        ml_features = {
+            "cvd": binance_features.get("cvd", 0.0),
+            "ob_imbalance": binance_features.get("ob_imbalance", 0.0),
+            "bullpen_sentiment": bullpen_score
+        }
+        ml_score = self.ml_model.predict(ml_features)
+        
+        # 3. Consolidate Context for AI
         context = {
             "cvd": binance_features.get("cvd", 0.0),
             "ob_imbalance": binance_features.get("ob_imbalance", 0.0),
+            "ml_prediction_score": ml_score,
             "bullpen_sentiment": bullpen_score,
             "news_impact": 0.0 
         }
@@ -48,12 +59,20 @@ class IntelligentGate:
         ai_thought = ai_analysis.get("reasoning", "")
         executor_msg = "Market condition stable." # Default message
 
-        # 4. Final Logic Override (Veto Logic)
-        signal_label = "Bullpen Signal Active"
-        if confidence < self.conf_threshold and abs(bullpen_score) < 0.2:
+        # 4. Final Logic Override (Hybrid Veto)
+        signal_label = "Hybrid Intelligence Active"
+        
+        # Rule A: Veto if AI is unsure AND ML is weak
+        if confidence < self.conf_threshold and ml_score < 0.4:
             decision = "SKIP"
-            signal_label = "VETO: low_confidence_veto"
-            executor_msg = f"[Veto] Indecisive Market: Low AI Confidence & Low Whale Movement."
+            signal_label = "VETO: low_confidence_hybrid"
+            executor_msg = f"[Veto] Weak Signals: AI ({confidence:.2f}) & ML ({ml_score:.2f}) both low."
+            
+        # Rule B: Extreme ML Veto (Protect against AI hallucinations)
+        elif decision == "ENTER" and ml_score < 0.25:
+            decision = "SKIP"
+            signal_label = "VETO: extreme_ml_divergence"
+            executor_msg = f"[Veto] ML Warning: Statistical score too low ({ml_score:.2f})."
         elif decision == "SKIP":
             executor_msg = "AI decided to skip this window."
 
@@ -61,6 +80,7 @@ class IntelligentGate:
         record_data = {
             "window_id": window_id,
             "confidence": confidence,
+            "ml_score": ml_score,
             "bullpen_sentiment": bullpen_score,
             "gate_decision": decision,
             "ai_thought": ai_thought,
@@ -81,6 +101,7 @@ class IntelligentGate:
             f"━━━━━━━━━━━━━━━\n"
             f"🆔 Window: {record['window_id']}\n"
             f"📊 Confidence: {record['confidence']:.2f}\n"
+            f"📉 ML Score: {record.get('ml_score', 0.5):.2f}\n"
             f"📈 Bullpen: {record['bullpen_sentiment']:.2f}\n"
             f"📰 Signal: {record['signal_label']}\n"
             f"💬 AI Thought: {record['ai_thought']}\n"
