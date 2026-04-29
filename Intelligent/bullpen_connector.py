@@ -2,6 +2,7 @@ import subprocess
 import json
 import logging
 import os
+import time
 
 logger = logging.getLogger("intelligent.bullpen")
 
@@ -13,19 +14,17 @@ class BullpenConnector:
         vps_path = "/root/.bullpen/bin/bullpen"
         cmd_base = vps_path if os.path.exists(vps_path) else "bullpen"
         
-        results = {"stats": None}
-        
         try:
-            # Command: General Smart-Money flow (Collective Sentiment)
-            cmd = f"{cmd_base} polymarket data smart-money --output json"
+            # Command v7.0: Requesting raw trades snapshot with PnL filter
+            # This ensures we get real action, not just ranking stats.
+            cmd = f"{cmd_base} polymarket data trades --min-pnl 1000 --limit 50 --output json"
             res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=15)
             
             if res.returncode != 0:
-                print(f"DEBUG: Bullpen CLI Error: {res.stderr[:100]}")
                 return {"score": 0.0, "direction_score": 0.0, "raw": None}
             
             raw_output = res.stdout.strip()
-            # EMERGENCY DUMP: Save to file for manual inspection
+            # EMERGENCY DUMP
             with open("debug_bullpen_raw.txt", "w") as f:
                 f.write(raw_output)
                 
@@ -33,51 +32,53 @@ class BullpenConnector:
                 return {"score": 0.0, "direction_score": 0.0, "raw": None}
                 
             data = json.loads(raw_output)
-            print(f"DEBUG: Bullpen Snapshot Received ({len(raw_output)} bytes)")
-            return self._parse_v5_snapshot(data)
+            return self._parse_v7_realtime(data)
             
         except Exception as e:
-            logger.error(f"Failed to fetch Bullpen v5: {e}")
+            logger.error(f"Failed to fetch Bullpen v7: {e}")
             return {"score": 0.0, "direction_score": 0.0, "raw": None}
 
-    def _parse_v5_snapshot(self, data):
+    def _parse_v7_realtime(self, data):
         """
-        Parser v5.0: Focuses on signals and trader outcomes from the snapshot.
+        Parser v7.0: Filters trades from the last 5 minutes and calculates direction.
         """
         try:
             up_votes = 0
             down_votes = 0
+            now = time.time()
             
-            # The 'signals' list is the gold mine for directional flow
-            signals = data.get("signals", []) if isinstance(data, dict) else []
-            
-            if not signals:
-                # If no signals, look at the general summary if available
-                summary = str(data.get("summary", "")).upper()
-                if any(k in summary for k in ["BULLISH", "BUYING", "LONG"]): up_votes += 1
-                if any(k in summary for k in ["BEARISH", "SELLING", "SHORT"]): down_votes += 1
-            
-            if signals:
-                first_sig = signals[0]
-                print(f"DEBUG: First Bullpen Signal: {first_sig.get('title', 'No Title')} | {first_sig.get('summary', 'No Summary')[:50]}...")
+            # Data can be a list or a dict containing a list
+            trades = data.get("trades", []) if isinstance(data, dict) else data
+            if not isinstance(trades, list):
+                return {"score": 0.0, "direction_score": 0.0}
 
-            for s in signals:
-                title = str(s.get("title", "")).upper()
-                summary = str(s.get("summary", "")).upper()
-                side = str(s.get("side", "") or "").upper()
-                outcome = str(s.get("outcome", "") or "").upper()
-                text = title + " " + summary
+            for t in trades:
+                # 1. Time Filter: Only last 5 minutes (300s)
+                trade_ts = t.get("timestamp", 0)
+                if trade_ts > 0 and (now - trade_ts) > 300:
+                    continue
                 
-                # Logic v6.0: Extremely inclusive
-                is_up = any(k in text for k in ["UP", "BULLISH", "LONG", "YES", "BUY"]) or (side == "BUY" and outcome == "YES")
-                is_down = any(k in text for k in ["DOWN", "BEARISH", "SHORT", "NO", "SELL"]) or (side == "BUY" and outcome == "NO")
+                market = str(t.get("market_name", "")).upper()
+                side = str(t.get("side", "")).upper()
+                outcome = str(t.get("outcome", "")).upper()
+                
+                # We only care about BTC markets for this bot
+                if "BTC" not in market:
+                    continue
+
+                is_up = False
+                is_down = False
+                
+                # Standard Directional Logic
+                if "UP" in market:
+                    if (side == "BUY" and outcome == "YES") or (side == "SELL" and outcome == "NO"): is_up = True
+                    if (side == "BUY" and outcome == "NO") or (side == "SELL" and outcome == "YES"): is_down = True
+                elif "DOWN" in market:
+                    if (side == "BUY" and outcome == "YES") or (side == "SELL" and outcome == "NO"): is_down = True
+                    if (side == "BUY" and outcome == "NO") or (side == "SELL" and outcome == "YES"): is_up = True
                 
                 if is_up: up_votes += 1
                 if is_down: down_votes += 1
-                
-                # Extra weight for clear directional keywords
-                if "BULLISH" in text or "LONG" in text: up_votes += 1
-                if "BEARISH" in text or "SHORT" in text: down_votes += 1
 
             total = up_votes + down_votes
             direction_score = 0.0
@@ -87,9 +88,9 @@ class BullpenConnector:
             return {
                 "score": round(direction_score, 2),
                 "direction_score": round(direction_score, 2),
-                "total_votes": total,
+                "total_recent_trades": total,
                 "raw": data
             }
         except Exception as e:
-            logger.error(f"Error in Bullpen v5 Parser: {e}")
+            logger.error(f"Error in Bullpen v7 Parser: {e}")
             return {"score": 0.0, "direction_score": 0.0, "raw": data}
