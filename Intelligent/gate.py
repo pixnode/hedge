@@ -8,6 +8,7 @@ import requests
 from dotenv import load_dotenv
 from .memory import PoolMemory
 from .bullpen_connector import BullpenConnector
+from .poly_onchain import PolyOnChain
 from .openrouter_agent import OpenRouterAgent
 
 logger = logging.getLogger("intelligent.gate")
@@ -20,6 +21,7 @@ class IntelligentGate:
     def __init__(self):
         self.memory = PoolMemory()
         self.bullpen = BullpenConnector()
+        self.onchain = PolyOnChain()
         
         # Load specific model for Gate
         gate_model = os.getenv("OPENROUTER_MODEL_GATE", "deepseek/deepseek-r1")
@@ -35,16 +37,22 @@ class IntelligentGate:
         """
         logger.info(f"Evaluating Gate for {window_id}...")
         
-        # 1. Fetch External Signals
+        # 1. Fetch External Signals (Hybrid Mode)
         bullpen_data = self.bullpen.get_smart_money_signals()
         bullpen_score = bullpen_data.get("score", 0.0) if bullpen_data else 0.0
+        
+        # Emergency Eye: Fetch On-Chain Data directly (Using Window ID to find context if needed)
+        # For BTC-UP/DOWN markets, we'd need the condition_id. 
+        # For now, we use a placeholder or derived score.
+        onchain_score = self.onchain.get_whale_direction_score("0x6280490b8f6c5e7b514b8a4f6c449c47e8a93946") # Example BTC-UP Condition
         
         # 2. Consolidate Context for LLM Reasoning
         context = {
             "cvd": binance_features.get("cvd", 0.0),
             "ob_imbalance": binance_features.get("ob_imbalance", 0.0),
             "bullpen_score": bullpen_score,
-            "news_impact": 0.0 # Placeholder for now
+            "onchain_score": onchain_score,
+            "news_impact": 0.0 
         }
         
         # 3. Get AI Reasoning Layer
@@ -116,6 +124,7 @@ class IntelligentGate:
             f"🆔 Window: {record['window_id']}\n"
             f"\U0001f4ca Confidence: {record['confidence']:.2f}\n"
             f"\U0001f4c8 Bullpen: {record['bullpen_sentiment']:.2f}\n"
+            f"\U0001f517 On-Chain: {record.get('onchain_score', 0.0):.2f}\n"
             f"\U0001f4f0 Signal: {news_summary}\n"
             f"\U0001f4ac AI: {record['llm_reasoning']}\n"
             f"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501"
