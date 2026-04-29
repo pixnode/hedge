@@ -16,9 +16,8 @@ class BullpenConnector:
         results = {"stats": None}
         
         try:
-            # Command: Use smart-money with top_traders type for a clean JSON snapshot
-            # This contains 'convergence' and directional trader flows.
-            cmd = f"{cmd_base} polymarket data smart-money --type top_traders --output json"
+            # Command: General Smart-Money flow (Collective Sentiment)
+            cmd = f"{cmd_base} polymarket data smart-money --output json"
             res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=15)
             
             if res.returncode != 0:
