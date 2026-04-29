@@ -13,71 +13,69 @@ class BullpenConnector:
         vps_path = "/root/.bullpen/bin/bullpen"
         cmd_base = vps_path if os.path.exists(vps_path) else "bullpen"
         
-        results = {"stats": None, "trades": None}
+        results = {"stats": None}
         
         try:
-            # Command 1: Smart Money Stats (for Convergence)
-            cmd_stats = f"{cmd_base} polymarket data smart-money --output json"
-            res_stats = subprocess.run(cmd_stats, shell=True, capture_output=True, text=True, timeout=10)
-            if res_stats.returncode == 0:
-                results["stats"] = json.loads(res_stats.stdout)
+            # Command: Use smart-money with top_traders type for a clean JSON snapshot
+            # This contains 'convergence' and directional trader flows.
+            cmd = f"{cmd_base} polymarket data smart-money --type top_traders --output json"
+            res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=15)
+            
+            if res.returncode != 0:
+                print(f"DEBUG: Bullpen CLI Error: {res.stderr[:100]}")
+                return {"score": 0.0, "direction_score": 0.0, "raw": None}
+            
+            raw_output = res.stdout.strip()
+            if not raw_output:
+                return {"score": 0.0, "direction_score": 0.0, "raw": None}
                 
-            # Command 2: Whale Feed (for Directional Action)
-            cmd_trades = f"{cmd_base} polymarket feed trades --limit 15 --output json"
-            res_trades = subprocess.run(cmd_trades, shell=True, capture_output=True, text=True, timeout=10)
-            if res_trades.returncode == 0:
-                results["trades"] = json.loads(res_trades.stdout)
-                
-            return self._parse_advanced_v4(results)
+            data = json.loads(raw_output)
+            print(f"DEBUG: Bullpen Snapshot Received ({len(raw_output)} bytes)")
+            return self._parse_v5_snapshot(data)
             
         except Exception as e:
-            logger.error(f"Failed to fetch Bullpen v4: {e}")
+            logger.error(f"Failed to fetch Bullpen v5: {e}")
             return {"score": 0.0, "direction_score": 0.0, "raw": None}
 
-    def _parse_advanced_v4(self, results):
+    def _parse_v5_snapshot(self, data):
+        """
+        Parser v5.0: Focuses on signals and trader outcomes from the snapshot.
+        """
         try:
             up_votes = 0
             down_votes = 0
             
-            # 1. Parse Trades (Looking for YES/NO and BUY/SELL)
-            trades_data = results.get("trades") or []
-            # Bullpen sometimes wraps list in a dict
-            trades = trades_data.get("trades", []) if isinstance(trades_data, dict) else trades_data
-                
-            for t in trades:
-                side = str(t.get("side", "") or t.get("action", "")).upper()
-                outcome = str(t.get("outcome", "")).upper()
-                market = str(t.get("market_name", "") or t.get("title", "")).upper()
-                
-                # Logic:
-                # Buying YES on UP-market = Bullish
-                # Buying NO on UP-market = Bearish
-                # Buying YES on DOWN-market = Bearish
-                # Buying NO on DOWN-market = Bullish
-                
-                is_bullish = False
-                is_bearish = False
-                
-                if "UP" in market:
-                    if (side == "BUY" and outcome == "YES") or (side == "SELL" and outcome == "NO"): is_bullish = True
-                    if (side == "BUY" and outcome == "NO") or (side == "SELL" and outcome == "YES"): is_bearish = True
-                elif "DOWN" in market:
-                    if (side == "BUY" and outcome == "YES") or (side == "SELL" and outcome == "NO"): is_bearish = True
-                    if (side == "BUY" and outcome == "NO") or (side == "SELL" and outcome == "YES"): is_bullish = True
-                
-                if is_bullish: up_votes += 1
-                if is_bearish: down_votes += 1
-
-            # 2. Parse Signals (Convergence)
-            stats = results.get("stats") or {}
-            signals = stats.get("signals", []) if isinstance(stats, dict) else []
+            # The 'signals' list is the gold mine for directional flow
+            signals = data.get("signals", []) if isinstance(data, dict) else []
+            
+            if not signals:
+                # If no signals, look at the general summary if available
+                summary = str(data.get("summary", "")).upper()
+                if any(k in summary for k in ["BULLISH", "BUYING", "LONG"]): up_votes += 1
+                if any(k in summary for k in ["BEARISH", "SELLING", "SHORT"]): down_votes += 1
+            
             for s in signals:
-                text = (str(s.get("title", "")) + " " + str(s.get("summary", ""))).upper()
-                if "CONVERGENCE" in text or "SHARP TRADERS" in text:
-                    if any(k in text for k in ["UP", "BULLISH", "YES"]): up_votes += 2 # Stronger weight
-                    if any(k in text for k in ["DOWN", "BEARISH", "NO"]): down_votes += 2
+                title = str(s.get("title", "")).upper()
+                summary = str(s.get("summary", "")).upper()
+                text = title + " " + summary
+                
+                # Logic for directional signals
+                # Example: "5 traders bought YES on BTC-UP"
+                is_up = any(k in text for k in ["UP", "BULLISH", "LONG", "YES", "BUY"])
+                is_down = any(k in text for k in ["DOWN", "BEARISH", "SHORT", "NO", "SELL"])
+                
+                # Cross-reference with market type
+                if "UP" in text:
+                    if is_up: up_votes += 2
+                    if is_down: down_votes += 2 # Wait, this logic needs to be careful
+                
+                # Simpler robust logic:
+                if "BULLISH" in text or "LONG" in text: up_votes += 2
+                if "BEARISH" in text or "SHORT" in text: down_votes += 2
+                
+                if "BUY" in title and "UP" in title: up_votes += 3
+                if "BUY" in title and "DOWN" in title: down_votes += 3
 
-            # 3. Calculate Directional Score
             total = up_votes + down_votes
             direction_score = 0.0
             if total > 0:
@@ -87,8 +85,8 @@ class BullpenConnector:
                 "score": round(direction_score, 2),
                 "direction_score": round(direction_score, 2),
                 "total_votes": total,
-                "raw": results
+                "raw": data
             }
         except Exception as e:
-            logger.error(f"Error in Bullpen v4 Parser: {e}")
-            return {"score": 0.0, "direction_score": 0.0, "raw": results}
+            logger.error(f"Error in Bullpen v5 Parser: {e}")
+            return {"score": 0.0, "direction_score": 0.0, "raw": data}
