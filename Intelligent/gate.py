@@ -77,6 +77,8 @@ class IntelligentGate:
             skip_reason = "bullpen_bullish_veto"
             reasoning = "[Veto] Bullpen Counter-Signal: Whales are heavily Bullish."
 
+        gate_reasoning = reasoning # Final executor reasoning
+
         # 5. Calculate Dynamic Target Adjustment
         dynamic_adj = 0.0
         if decision == "ENTER" and confidence > 0.75:
@@ -94,7 +96,8 @@ class IntelligentGate:
             "dynamic_target_adj": dynamic_adj,
             "gate_decision": decision,
             "skip_reason": skip_reason,
-            "llm_reasoning": reasoning,
+            "gate_reasoning": gate_reasoning,
+            "llm_reasoning": ai_analysis.get("reasoning", ""),
             "features_snapshot": binance_features
         }
         self.memory.record_window(record_data)
@@ -117,7 +120,8 @@ class IntelligentGate:
             f"\U0001f4ca Confidence: {record['confidence']:.2f}\n"
             f"\U0001f4c8 Bullpen: {record['bullpen_sentiment']:.2f}\n"
             f"\U0001f4f0 Signal: {news_summary}\n"
-            f"\U0001f4ac AI: {record['llm_reasoning']}\n"
+            f"\U0001f4ac AI Thought: {record['llm_reasoning']}\n"
+            f"\u2699\ufe0f Executor: {record['gate_reasoning']}\n"
             f"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501"
         )
         print(msg)
