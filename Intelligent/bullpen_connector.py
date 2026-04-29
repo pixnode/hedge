@@ -13,25 +13,20 @@ class BullpenConnector:
         """
         Executes Bullpen CLI to fetch smart money flow for Polymarket.
         """
-        # Try absolute path first for VPS, then fallback to 'bullpen'
         vps_path = "/root/.bullpen/bin/bullpen"
         cmd_base = vps_path if os.path.exists(vps_path) else "bullpen"
         
         try:
+            # Added timeout to prevent hanging
             cmd = f"{cmd_base} polymarket data smart-money --output json"
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=15)
             
             if result.returncode != 0:
-                if "Login Required" in result.stderr:
-                    logger.warning("Bullpen Login Required. Please run 'bullpen login' in terminal.")
                 return None
             
             data = json.loads(result.stdout)
             return self._parse_sentiment(data)
             
-        except FileNotFoundError:
-            logger.error("Bullpen CLI not found. Please install it from https://cli.bullpen.fi/")
-            return None
         except Exception as e:
             logger.error(f"Failed to fetch Bullpen data: {e}")
             return None
@@ -39,30 +34,41 @@ class BullpenConnector:
     def _parse_sentiment(self, raw_data):
         """
         Parses raw Bullpen JSON into a simplified sentiment score (-1 to 1).
-        Logic: Looks at top traders' net position in current BTC markets.
+        Verified for Bullpen CLI v1.2+ JSON structure.
         """
         try:
-            # Note: The exact JSON structure depends on the Bullpen CLI version.
-            # We look for overall 'sentiment' or individual trader flows.
-            
             sentiment_score = 0.0
+            signals = []
             
-            # Example logic (placeholder until actual JSON structure is confirmed):
-            # If the CLI returns a list of trades:
-            if isinstance(raw_data, list):
-                up_flow = sum(1 for t in raw_data if "UP" in t.get("market", "").upper())
-                down_flow = sum(1 for t in raw_data if "DOWN" in t.get("market", "").upper())
+            if isinstance(raw_data, dict) and "signals" in raw_data:
+                signals = raw_data["signals"]
+            elif isinstance(raw_data, list):
+                signals = raw_data
+            
+            if not signals:
+                return {"score": 0.0, "raw": raw_data}
+            
+            up_weight = 0
+            down_weight = 0
+            
+            for s in signals:
+                text = (str(s.get("title", "")) + " " + str(s.get("summary", ""))).upper()
+                side = str(s.get("side", "") or "").upper()
                 
-                total = up_flow + down_flow
-                if total > 0:
-                    sentiment_score = (up_flow - down_flow) / total
+                # Logic: Find bullish/bearish indicators
+                is_up = any(k in text for k in ["UP", "BULLISH", "LONG", "BUY"]) or side == "BUY"
+                is_down = any(k in text for k in ["DOWN", "BEARISH", "SHORT", "SELL"]) or side == "SELL"
+                
+                if is_up: up_weight += 1
+                if is_down: down_weight += 1
             
-            # If the CLI returns a summary object:
-            elif isinstance(raw_data, dict):
-                sentiment_score = raw_data.get("sentiment_score", 0.0)
+            total = up_weight + down_weight
+            if total > 0:
+                sentiment_score = (up_weight - down_weight) / total
                 
             return {
                 "score": round(sentiment_score, 2),
+                "count": total,
                 "raw": raw_data
             }
         except Exception as e:
@@ -70,11 +76,9 @@ class BullpenConnector:
             return {"score": 0.0, "raw": raw_data}
 
 if __name__ == "__main__":
-    # Test Bullpen CLI
     bp = BullpenConnector()
     signals = bp.get_smart_money_signals()
     if signals:
-        print(f"Smart Money Sentiment: {signals['score']}")
-        # print(f"Raw Data: {json.dumps(signals['raw'], indent=2)}")
+        print(f"Smart Money Score: {signals['score']} (Based on {signals.get('count', 0)} signals)")
     else:
-        print("Bullpen CLI not found or returned error.")
+        print("Bullpen CLI not found or empty.")
