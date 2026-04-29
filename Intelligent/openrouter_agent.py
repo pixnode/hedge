@@ -26,36 +26,23 @@ class OpenRouterAgent:
                         config[k] = v
         return config
 
-    def analyze_market_context(self, context_data: dict):
+    def ask_ai(self, prompt: str):
+        """General purpose AI query."""
         if not self.api_key:
-            return {"confidence": 0.5, "reasoning": "API Key Missing", "decision": "WAIT"}
-
-        prompt = f"""
-        Analyze this BTC Polymarket context:
-        - Binance CVD: {context_data.get('cvd')}
-        - Order Book Imbalance: {context_data.get('ob_imbalance')}
-        - Bullpen Sentiment: {context_data.get('bullpen_sentiment')}
-        
-        Provide JSON ONLY:
-        {{
-            "confidence": float,
-            "decision": "ENTER/SKIP/WAIT",
-            "reasoning": "string"
-        }}
-        """
+            return {"error": "API Key Missing"}
 
         try:
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
                 "HTTP-Referer": "https://github.com/pixnode/hedge",
-                "X-Title": "ATS v3.0 Intelligent Gate"
+                "X-Title": "ATS v3.0 Intelligent Department"
             }
             
             payload = {
                 "model": self.model,
                 "messages": [
-                    {"role": "system", "content": "You are a quant trader. Output JSON only."},
+                    {"role": "system", "content": "You are a quant trading expert. Output JSON only."},
                     {"role": "user", "content": prompt}
                 ],
                 "response_format": {"type": "json_object"},
@@ -70,29 +57,36 @@ class OpenRouterAgent:
             
             if 'choices' not in result:
                 print(f"DEBUG: AI API Error: {result}")
-                return {"confidence": 0.5, "decision": "WAIT", "reasoning": "API Error"}
+                return {"error": "API Error"}
 
             raw_content = result['choices'][0]['message']['content']
             
-            # --- EKSTRAKSI JSON BRUTAL (AKAR MASALAH 0.00) ---
-            # Cari blok JSON di antara { dan }
+            # Brutal JSON Extraction
             clean_json = raw_content
             match = re.search(r'(\{.*\})', raw_content, re.DOTALL)
             if match:
                 clean_json = match.group(1)
             
-            # Bersihkan karakter kontrol atau sisa-sisa markdown
             clean_json = clean_json.replace("```json", "").replace("```", "").strip()
-            
-            parsed = json.loads(clean_json)
-            
-            # Pastikan nilai confidence adalah float dan tidak 0 jika tidak seharusnya
-            confidence = parsed.get("confidence", 0.5)
-            if isinstance(confidence, str):
-                confidence = float(confidence)
-            
-            return parsed
-            
+            return json.loads(clean_json)
+
         except Exception as e:
-            logger.error(f"AI Parse Error: {e} | Raw: {raw_content[:100] if 'raw_content' in locals() else 'None'}")
-            return {"confidence": 0.5, "decision": "WAIT", "reasoning": "Parse Error"}
+            logger.error(f"AI Query Failed: {e}")
+            return {"error": str(e)}
+
+    def analyze_market_context(self, context_data: dict):
+        prompt = f"""
+        Analyze this BTC Polymarket context:
+        - Binance CVD: {context_data.get('cvd')}
+        - Order Book Imbalance: {context_data.get('ob_imbalance')}
+        - ML Prediction Score (LightGBM): {context_data.get('ml_prediction_score')}
+        - Bullpen Sentiment: {context_data.get('bullpen_sentiment')}
+        
+        Provide JSON:
+        {{
+            "confidence": float,
+            "decision": "ENTER/SKIP/WAIT",
+            "reasoning": "string"
+        }}
+        """
+        return self.ask_ai(prompt)
