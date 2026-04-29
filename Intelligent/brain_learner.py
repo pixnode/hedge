@@ -51,9 +51,10 @@ class BrainLearner:
         """
 
         try:
-            # We use a more powerful model for training analysis if available
-            self.ai.model = "google/gemini-2.0-pro-exp-02-05:free" # Use Pro for reasoning
-            analysis = self.ai.analyze_market_context({"custom_prompt": prompt}) # Generic method reuse
+            # Load specific model for Learning Analysis from config.env
+            learner_model = os.getenv("OPENROUTER_MODEL_LEARNER", "anthropic/claude-3.5-sonnet")
+            self.ai.model = learner_model
+            analysis = self.ai.analyze_market_context({"custom_prompt": prompt})
             
             logger.info(f"Daily Learning Complete: {analysis.get('daily_lesson')}")
             return analysis

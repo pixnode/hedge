@@ -20,7 +20,10 @@ class IntelligentGate:
     def __init__(self):
         self.memory = PoolMemory()
         self.bullpen = BullpenConnector()
-        self.ai = OpenRouterAgent()
+        
+        # Load specific model for Gate
+        gate_model = os.getenv("OPENROUTER_MODEL_GATE", "deepseek/deepseek-r1")
+        self.ai = OpenRouterAgent(model=gate_model)
         
         # Thresholds (could be loaded from config.env)
         self.conf_threshold = 0.55
