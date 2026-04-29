@@ -23,7 +23,8 @@ class FeatureBuilder:
         self.running = True
         while self.running:
             try:
-                async with websockets.connect(self.ws_url) as ws:
+                # Enable ping/pong to keep connection alive
+                async with websockets.connect(self.ws_url, ping_interval=20, ping_timeout=10) as ws:
                     logger.info(f"Feature Builder connected to Binance: {self.symbol.upper()}")
                     while self.running:
                         msg = await ws.recv()

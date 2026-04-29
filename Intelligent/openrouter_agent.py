@@ -60,6 +60,8 @@ class OpenRouterAgent:
                 return {"error": "API Error"}
 
             raw_content = result['choices'][0]['message']['content']
+            if not raw_content:
+                return {"error": "Empty AI Response"}
             
             # Brutal JSON Extraction
             clean_json = raw_content
@@ -68,7 +70,27 @@ class OpenRouterAgent:
                 clean_json = match.group(1)
             
             clean_json = clean_json.replace("```json", "").replace("```", "").strip()
-            return json.loads(clean_json)
+            
+            try:
+                return json.loads(clean_json)
+            except json.JSONDecodeError as je:
+                # Attempt last-resort repair for common "unterminated string" or truncated JSON
+                if "Unterminated string" in str(je) or "Expecting value" in str(je):
+                    # Try to force-close any open strings or brackets
+                    repaired = clean_json.strip()
+                    if not repaired.endswith("}"): repaired += '"}' if '"' in repaired else "}"
+                    try:
+                        return json.loads(repaired)
+                    except:
+                        pass
+                
+                logger.error(f"AI JSON Parse Failed: {je} | Raw Snippet: {clean_json[:100]}")
+                # Return a safe fallback based on keywords if JSON fails
+                return {
+                    "confidence": 0.5,
+                    "decision": "SKIP" if "SKIP" in clean_json.upper() else "WAIT",
+                    "reasoning": "AI format error, using keyword fallback."
+                }
 
         except Exception as e:
             logger.error(f"AI Query Failed: {e}")
