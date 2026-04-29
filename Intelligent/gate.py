@@ -48,6 +48,7 @@ class IntelligentGate:
         }
         
         # 3. Get AI Reasoning Layer
+        print(f"DEBUG: Requesting AI Analysis for {window_id}...")
         ai_analysis = self.ai.analyze_market_context(context)
         
         confidence = ai_analysis.get("confidence", 0.5)

@@ -75,7 +75,8 @@ class OpenRouterAgent:
                 "response_format": {"type": "json_object"}
             }
 
-            response = requests.post(self.url, headers=headers, json=payload, timeout=20)
+            print(f"DEBUG: AI is thinking (Model: {self.model})...")
+            response = requests.post(self.url, headers=headers, json=payload, timeout=120)
             result = response.json()
             
             if 'error' in result:
