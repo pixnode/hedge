@@ -53,6 +53,7 @@ class OpenRouterAgent:
         {{
             "confidence": float,
             "decision": "ENTER/SKIP/WAIT",
+            "direction": "UP/DOWN/NONE",
             "reasoning": "string"
         }}
         """
