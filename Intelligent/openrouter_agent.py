@@ -2,12 +2,12 @@ import requests
 import json
 import logging
 import os
+import re
 
 logger = logging.getLogger("intelligent.openrouter")
 
 class OpenRouterAgent:
     def __init__(self, api_key=None, model=None):
-        # Load from Intelligent/config.env
         env_path = os.path.join(os.path.dirname(__file__), "config.env")
         self.config = self._load_env(env_path)
         
@@ -35,15 +35,10 @@ class OpenRouterAgent:
         - Order Book Imbalance: {context_data.get('ob_imbalance')}
         - Bullpen Sentiment: {context_data.get('bullpen_sentiment')}
         
-        Provide:
-        1. Confidence Score (0.0 to 1.0)
-        2. Decision: ENTER, SKIP, or WAIT
-        3. Brief reasoning (max 15 words)
-        
-        JSON ONLY:
+        Provide JSON ONLY:
         {{
             "confidence": float,
-            "decision": "string",
+            "decision": "ENTER/SKIP/WAIT",
             "reasoning": "string"
         }}
         """
@@ -51,46 +46,49 @@ class OpenRouterAgent:
         try:
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://github.com/pixnode/hedge",
+                "X-Title": "ATS v3.0 Intelligent Gate"
             }
             
             payload = {
                 "model": self.model,
                 "messages": [
-                    {"role": "system", "content": "You are a professional trader."},
+                    {"role": "system", "content": "You are a quant trader. Output JSON only."},
                     {"role": "user", "content": prompt}
                 ],
                 "response_format": {"type": "json_object"}
             }
 
             print(f"DEBUG: AI is thinking (Model: {self.model})...")
-            response = requests.post(self.url, headers=headers, json=payload, timeout=60)
+            response = requests.post(self.url, headers=headers, json=payload, timeout=90)
             result = response.json()
             
             if 'choices' not in result:
-                print(f"DEBUG: AI Raw Error: {result}")
-                return {"confidence": 0.5, "decision": "WAIT", "reasoning": "AI API Error"}
+                print(f"DEBUG: AI API Error: {result}")
+                return {"confidence": 0.5, "decision": "WAIT", "reasoning": "API Error"}
 
-            content = result['choices'][0]['message']['content']
-            print(f"DEBUG: AI Raw Content: {content[:200]}...")
+            raw_content = result['choices'][0]['message']['content']
             
-            # Sanitizer: AI often wraps JSON in code blocks or thinking text
-            temp_content = content
-            if "```json" in temp_content:
-                temp_content = temp_content.split("```json")[1].split("```")[0].strip()
-            elif "```" in temp_content:
-                temp_content = temp_content.split("```")[1].split("```")[0].strip()
+            # --- EKSTRAKSI JSON BRUTAL (AKAR MASALAH 0.00) ---
+            # Cari blok JSON di antara { dan }
+            clean_json = raw_content
+            match = re.search(r'(\{.*\})', raw_content, re.DOTALL)
+            if match:
+                clean_json = match.group(1)
             
-            try:
-                return json.loads(temp_content)
-            except:
-                # Last resort: try to find anything that looks like JSON
-                import re
-                match = re.search(r'\{.*\}', temp_content, re.DOTALL)
-                if match:
-                    return json.loads(match.group())
-                raise
+            # Bersihkan karakter kontrol atau sisa-sisa markdown
+            clean_json = clean_json.replace("```json", "").replace("```", "").strip()
+            
+            parsed = json.loads(clean_json)
+            
+            # Pastikan nilai confidence adalah float dan tidak 0 jika tidak seharusnya
+            confidence = parsed.get("confidence", 0.5)
+            if isinstance(confidence, str):
+                confidence = float(confidence)
+            
+            return parsed
             
         except Exception as e:
-            logger.error(f"AI Error: {e}")
-            return {"confidence": 0.5, "decision": "WAIT", "reasoning": f"Error: {str(e)[:20]}"}
+            logger.error(f"AI Parse Error: {e} | Raw: {raw_content[:100] if 'raw_content' in locals() else 'None'}")
+            return {"confidence": 0.5, "decision": "WAIT", "reasoning": "Parse Error"}
