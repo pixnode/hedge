@@ -108,7 +108,7 @@ class OpenRouterAgent:
         {{
             "confidence": float (0.0 to 1.0),
             "decision": "ENTER/SKIP/WAIT",
-            "reasoning": "A detailed explanation of why this decision was made."
+            "reasoning": "A concise 1-sentence explanation of the primary driver."
         }}
         """
         return self.ask_ai(prompt)
