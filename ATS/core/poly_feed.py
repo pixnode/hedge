@@ -33,13 +33,14 @@ class PolyWebsocketFeed:
         self.monitored_tokens = set(tokens)
         
         if self.ws_connection:
+            # IMPORTANT: For updates, use "operation": "subscribe" instead of "type": "market"
             sub_msg = {
-                "type": "market",
+                "operation": "subscribe",
                 "assets_ids": [str(t) for t in self.monitored_tokens]
             }
             try:
                 outgoing_json = json.dumps(sub_msg)
-                print(f"DEBUG: Updating Poly Sub: {outgoing_json}")
+                print(f"DEBUG: Updating Poly Sub (Update Op): {outgoing_json}")
                 await self.ws_connection.send(outgoing_json)
             except Exception as e:
                 print(f"DEBUG: Update Sub Failed: {e}")
@@ -62,13 +63,13 @@ class PolyWebsocketFeed:
                     # Grace period
                     await asyncio.sleep(0.5)
                     
-                    # Initial Subscription
+                    # Initial Subscription MUST use "type": "market"
                     sub_msg = {
                         "type": "market",
                         "assets_ids": [str(t) for t in self.monitored_tokens]
                     }
                     outgoing_json = json.dumps(sub_msg)
-                    print(f"DEBUG: Sending Initial Sub: {outgoing_json}")
+                    print(f"DEBUG: Sending Initial Sub (Market Type): {outgoing_json}")
                     await ws.send(outgoing_json)
                     
                     async for msg in ws:
@@ -78,7 +79,11 @@ class PolyWebsocketFeed:
                             data = json.loads(msg)
                             self._process_message(data)
                         except json.JSONDecodeError:
-                            print(f"DEBUG: Poly WS Raw Message (Non-JSON): {msg[:200]}")
+                            # Filter specific "INVALID OPERATION" string
+                            if "INVALID OPERATION" in msg:
+                                print(f"DEBUG: Server Rejected Payload: {msg}")
+                            else:
+                                print(f"DEBUG: Poly WS Raw Message (Non-JSON): {msg[:200]}")
                             continue
                         
             except Exception as e:
@@ -98,7 +103,6 @@ class PolyWebsocketFeed:
         if not asset_id:
             return
 
-        # Use string comparison for safety
         if str(asset_id) not in [str(t) for t in self.monitored_tokens]:
             return
 
@@ -108,19 +112,16 @@ class PolyWebsocketFeed:
         asks = data.get("asks", [])
         bids = data.get("bids", [])
         
-        # Extract Best Ask
         if asks:
             try:
                 self.latest_data[asset_id]["ask"] = min([float(ask["price"]) for ask in asks if float(ask["size"]) > 0])
             except: pass
 
-        # Extract Best Bid
         if bids:
             try:
                 self.latest_data[asset_id]["bid"] = max([float(bid["price"]) for bid in bids if float(bid["size"]) > 0])
             except: pass
             
-        # Emit event
         event = OrderBookEvent(
             asset_id=asset_id, 
             ask=self.latest_data[asset_id]["ask"], 
