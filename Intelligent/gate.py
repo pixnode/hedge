@@ -21,9 +21,7 @@ class IntelligentGate:
         self.bullpen = BullpenConnector()
         self.ml_model = IntelligentModel()
         self.feature_builder = FeatureBuilder()
-        
-        # Start Feature Builder in background
-        asyncio.create_task(self.feature_builder.start())
+        self.fb_started = False
         
         # Load specific model for Gate
         gate_model = os.getenv("OPENROUTER_MODEL_GATE", "deepseek/deepseek-r1")
@@ -36,6 +34,11 @@ class IntelligentGate:
         """
         Main Gate logic: Combined Binance + Bullpen + AI Reasoning.
         """
+        if not self.fb_started:
+            print("DEBUG: Starting FeatureBuilder Background Task...")
+            asyncio.create_task(self.feature_builder.start())
+            self.fb_started = True
+
         logger.info(f"Evaluating Gate for {window_id}...")
         
         # 1. Fetch External Signals

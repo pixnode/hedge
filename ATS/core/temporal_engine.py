@@ -58,6 +58,9 @@ class TemporalEngine:
         self.feed = feed
         self.executor = executor
         self.gate = IntelligentGate() if IntelligentGate else None
+        print(f"DEBUG: Intelligent Gate Initialized: {self.gate is not None}")
+        if self.gate is None:
+            print("DEBUG: IntelligentGate is None. Check imports or gate.py syntax.")
         
         self.current_window_slug = ""
         self.window_start_epoch = 0
