@@ -116,19 +116,20 @@ class IntelligentGate:
         
         return decision, dynamic_adj
 
-    async def notify_telegram_record(self, record, news_summary):
-        msg = (
-            f"\U0001f9e0 [V3 GATE] Decision: {record['gate_decision']}\n"
+    async def notify_telegram_record(self, record, signal_label):
+        message = (
+            f"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+            f"\ud83e\udde0 [V3 GATE] Decision: {record['gate_decision']}\n"
             f"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
             f"🆔 Window: {record['window_id']}\n"
             f"\U0001f4ca Confidence: {record['confidence']:.2f}\n"
-            f"\U0001f517 On-Chain: {onchain_score:.2f}\n"
+            f"\U0001f517 On-Chain: {record.get('onchain_whale_sentiment', 0.0):.2f}\n"
             f"\U0001f4c8 Bullpen Vol: {record['bullpen_sentiment']:.2f}\n"
-            f"\U0001f4f0 Signal: {news_summary}\n"
+            f"\U0001f4f0 Signal: {signal_label}\n"
             f"\U0001f4ac AI: {record['llm_reasoning']}\n"
             f"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501"
         )
-        print(msg)
+        print(message)
         
         # Send to Telegram
         bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
