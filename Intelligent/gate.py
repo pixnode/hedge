@@ -52,44 +52,53 @@ class IntelligentGate:
         }
         
         # 3. Get AI Reasoning Layer
+        print(f"DEBUG: Context sent to AI: {json.dumps(context)}")
         ai_analysis = self.ai.analyze_market_context(context)
-        
         confidence = ai_analysis.get("confidence", 0.5)
         decision = ai_analysis.get("decision", "WAIT")
         ai_thought = ai_analysis.get("reasoning", "")
-        executor_msg = "Market condition stable." # Default message
 
-        # 4. Final Logic Override (Hybrid Veto)
-        signal_label = "Hybrid Intelligence Active"
+        # 4. Hybrid Logic (Interface Contract Alignment)
+        p_up = ml_score
+        p_down = 1.0 - ml_score
+        convergence_score = (bullpen_score + 1.0) / 2.0 # Scale -1..1 to 0..1
         
-        # Rule A: Veto if AI is unsure AND ML is weak
-        if confidence < self.conf_threshold and ml_score < 0.4:
+        # 5. Final Decision Logic (Confidence Gate - Section 3.1)
+        signal_label = "Hybrid Intelligence Active"
+        executor_msg = "Market condition stable."
+        
+        # Rule: Confidence < threshold (MD 3.1)
+        if confidence < self.conf_threshold:
             decision = "SKIP"
-            signal_label = "VETO: low_confidence_hybrid"
-            executor_msg = f"[Veto] Weak Signals: AI ({confidence:.2f}) & ML ({ml_score:.2f}) both low."
+            executor_msg = f"[Veto] Low Conviction: {confidence:.2f} < {self.conf_threshold}"
             
-        # Rule B: Extreme ML Veto (Protect against AI hallucinations)
+        # Rule: Convergence Score < 0.3 (MD 3.1)
+        elif convergence_score < 0.3:
+            decision = "SKIP"
+            executor_msg = f"[Veto] Smart Money Diverge: Convergence {convergence_score:.2f} < 0.3"
+
+        # Rule: Extreme ML Divergence
         elif decision == "ENTER" and ml_score < 0.25:
             decision = "SKIP"
-            signal_label = "VETO: extreme_ml_divergence"
-            executor_msg = f"[Veto] ML Warning: Statistical score too low ({ml_score:.2f})."
-        elif decision == "SKIP":
-            executor_msg = "AI decided to skip this window."
+            executor_msg = f"[Veto] ML Statistical Warning: Score {ml_score:.2f} too low."
 
-        # 5. Record to Memory
+        # 6. Record to Memory (Interface Contract Fields - Section 2.1)
         record_data = {
             "window_id": window_id,
+            "signal": "BULL" if p_up > 0.5 else "BEAR",
             "confidence": confidence,
-            "ml_score": ml_score,
-            "bullpen_sentiment": bullpen_score,
+            "p_up": p_up,
+            "p_down": p_down,
+            "convergence_score": convergence_score,
+            "news_impact": 0.0, # News Agent placeholder
             "gate_decision": decision,
             "ai_thought": ai_thought,
             "executor_msg": executor_msg,
-            "signal_label": signal_label
+            "features_snapshot": binance_features
         }
         self.memory.record_window(record_data)
         
-        # 6. Notify Telegram (Premium Format)
+        # 7. Notify Telegram (Premium Format)
         await self.notify_telegram_premium(record_data)
         
         return decision, 0.0
@@ -101,9 +110,8 @@ class IntelligentGate:
             f"━━━━━━━━━━━━━━━\n"
             f"🆔 Window: {record['window_id']}\n"
             f"📊 Confidence: {record['confidence']:.2f}\n"
-            f"📉 ML Score: {record.get('ml_score', 0.5):.2f}\n"
-            f"📈 Bullpen: {record['bullpen_sentiment']:.2f}\n"
-            f"📰 Signal: {record['signal_label']}\n"
+            f"📈 P_UP: {record.get('p_up', 0.5):.2f} | P_DN: {record.get('p_down', 0.5):.2f}\n"
+            f"🤝 Convergence: {record.get('convergence_score', 0.5):.2f}\n"
             f"💬 AI Thought: {record['ai_thought']}\n"
             f"⚙️ Executor: {record['executor_msg']}\n"
             f"━━━━━━━━━━━━━━━"
