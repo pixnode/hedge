@@ -32,7 +32,7 @@ class IntelligentGate:
         bullpen_data = self.bullpen.get_smart_money_signals()
         bullpen_score = bullpen_data.get("score", 0.0) if bullpen_data else 0.0
         
-        # 2. Consolidate Context for LLM Reasoning
+        # 2. Consolidate Context for AI
         context = {
             "cvd": binance_features.get("cvd", 0.0),
             "ob_imbalance": binance_features.get("ob_imbalance", 0.0),
@@ -41,54 +41,50 @@ class IntelligentGate:
         }
         
         # 3. Get AI Reasoning Layer
-        print(f"DEBUG: Context sent to AI: {json.dumps(context)}")
-        print(f"DEBUG: Requesting AI Analysis for {window_id}...")
         ai_analysis = self.ai.analyze_market_context(context)
         
         confidence = ai_analysis.get("confidence", 0.5)
         decision = ai_analysis.get("decision", "WAIT")
-        reasoning = ai_analysis.get("reasoning", "")
-        
-        # 4. Final Logic Override (Veto)
-        # Revert to simple veto to prevent 0.00 blindness
+        ai_thought = ai_analysis.get("reasoning", "")
+        executor_msg = "Market condition stable." # Default message
+
+        # 4. Final Logic Override (Veto Logic)
+        signal_label = "Bullpen Signal Active"
         if confidence < self.conf_threshold and abs(bullpen_score) < 0.2:
             decision = "SKIP"
-            reasoning = f"[Veto] Low conviction from both AI ({confidence}) and Bullpen ({bullpen_score})."
+            signal_label = "VETO: low_confidence_veto"
+            executor_msg = f"[Veto] Indecisive Market: Low AI Confidence & Low Whale Movement."
+        elif decision == "SKIP":
+            executor_msg = "AI decided to skip this window."
 
-        # 5. Calculate Dynamic Target Adjustment
-        dynamic_adj = 0.0
-        if decision == "ENTER":
-            # Adjust target based on confidence
-            if confidence > 0.8: dynamic_adj = 0.05
-            elif confidence < 0.6: dynamic_adj = -0.05
-
-        # 6. Record to Memory
+        # 5. Record to Memory
         record_data = {
             "window_id": window_id,
             "confidence": confidence,
             "bullpen_sentiment": bullpen_score,
-            "cvd": context["cvd"],
             "gate_decision": decision,
-            "llm_reasoning": reasoning,
-            "features_snapshot": binance_features
+            "ai_thought": ai_thought,
+            "executor_msg": executor_msg,
+            "signal_label": signal_label
         }
         self.memory.record_window(record_data)
         
-        # 7. Notify Telegram
-        await self.notify_telegram_record(record_data, "Bullpen Signal Active")
+        # 6. Notify Telegram (Premium Format)
+        await self.notify_telegram_premium(record_data)
         
-        return decision, dynamic_adj
+        return decision, 0.0
 
-    async def notify_telegram_record(self, record, signal_label):
+    async def notify_telegram_premium(self, record):
+        # Using raw emojis for better compatibility
         message = (
+            f"🧠 [V3 GATE] Decision: {record['gate_decision']}\n"
             f"━━━━━━━━━━━━━━━\n"
-            f" [V3 GATE] Decision: {record['gate_decision']}\n"
-            f"━━━━━━━━━━━━━━━\n"
-            f"ID Window: {record['window_id']}\n"
-            f"Confidence: {record['confidence']:.2f}\n"
-            f"Bullpen: {record['bullpen_sentiment']:.2f}\n"
-            f"Signal: {signal_label}\n"
-            f"AI: {record['llm_reasoning']}\n"
+            f"🆔 Window: {record['window_id']}\n"
+            f"📊 Confidence: {record['confidence']:.2f}\n"
+            f"📈 Bullpen: {record['bullpen_sentiment']:.2f}\n"
+            f"📰 Signal: {record['signal_label']}\n"
+            f"💬 AI Thought: {record['ai_thought']}\n"
+            f"⚙️ Executor: {record['executor_msg']}\n"
             f"━━━━━━━━━━━━━━━"
         )
         print(message)
