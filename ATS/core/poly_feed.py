@@ -27,9 +27,6 @@ class PolyWebsocketFeed:
         self.ws_connection = None
 
     async def update_subscription(self, tokens: list):
-        """
-        Updates the active subscription. 
-        """
         if not tokens:
             return
             
@@ -42,35 +39,36 @@ class PolyWebsocketFeed:
             }
             try:
                 outgoing_json = json.dumps(sub_msg)
-                logger.warning(f"Sending Poly Sub Update: {outgoing_json}")
+                print(f"DEBUG: Updating Poly Sub: {outgoing_json}")
                 await self.ws_connection.send(outgoing_json)
             except Exception as e:
-                logger.error(f"Failed to subscribe: {e}")
+                print(f"DEBUG: Update Sub Failed: {e}")
 
     async def connect_and_listen(self):
         self.running = True
         while self.running:
             try:
-                # Wait until we actually have tokens before connecting
+                # Wait until we actually have tokens
                 while self.running and not self.monitored_tokens:
                     await asyncio.sleep(1)
                 
                 if not self.running: break
                 
+                print(f"DEBUG: Connecting to Poly WS: {self.ws_url}")
                 async with websockets.connect(self.ws_url) as ws:
-                    logger.warning(f"Poly Feed connected to: {self.ws_url}")
+                    print(f"DEBUG: Poly WS Handshake Success")
                     self.ws_connection = ws
                     
-                    # Small grace period for handshake
+                    # Grace period
                     await asyncio.sleep(0.5)
                     
-                    # Immediate subscription - FORCE STRING IDs
+                    # Initial Subscription
                     sub_msg = {
                         "type": "market",
                         "assets_ids": [str(t) for t in self.monitored_tokens]
                     }
                     outgoing_json = json.dumps(sub_msg)
-                    logger.warning(f"Sending Initial Poly Sub: {outgoing_json}")
+                    print(f"DEBUG: Sending Initial Sub: {outgoing_json}")
                     await ws.send(outgoing_json)
                     
                     async for msg in ws:
@@ -78,14 +76,14 @@ class PolyWebsocketFeed:
                             break
                         try:
                             data = json.loads(msg)
+                            self._process_message(data)
                         except json.JSONDecodeError:
-                            logger.error(f"Poly WS received non-JSON: {msg[:100]}...")
+                            print(f"DEBUG: Poly WS Raw Message (Non-JSON): {msg[:200]}")
                             continue
-                        self._process_message(data)
                         
             except Exception as e:
                 self.ws_connection = None
-                logger.error(f"WebSocket error: {e}. Reconnecting in 5s...")
+                print(f"DEBUG: Poly WS Loop Error: {e}")
                 await asyncio.sleep(5)
 
     def _process_message(self, data):
@@ -97,7 +95,11 @@ class PolyWebsocketFeed:
 
     def _process_single_message(self, data: dict):
         asset_id = data.get("asset_id")
-        if not asset_id or str(asset_id) not in [str(t) for t in self.monitored_tokens]:
+        if not asset_id:
+            return
+
+        # Use string comparison for safety
+        if str(asset_id) not in [str(t) for t in self.monitored_tokens]:
             return
 
         if asset_id not in self.latest_data:
@@ -107,26 +109,18 @@ class PolyWebsocketFeed:
         bids = data.get("bids", [])
         
         # Extract Best Ask
-        if not asks:
-            self.latest_data[asset_id]["ask"] = 0.0
-        else:
+        if asks:
             try:
-                best_ask = min([float(ask["price"]) for ask in asks if float(ask["size"]) > 0])
-                self.latest_data[asset_id]["ask"] = best_ask
-            except ValueError:
-                self.latest_data[asset_id]["ask"] = 0.0
+                self.latest_data[asset_id]["ask"] = min([float(ask["price"]) for ask in asks if float(ask["size"]) > 0])
+            except: pass
 
         # Extract Best Bid
-        if not bids:
-            self.latest_data[asset_id]["bid"] = 0.0
-        else:
+        if bids:
             try:
-                best_bid = max([float(bid["price"]) for bid in bids if float(bid["size"]) > 0])
-                self.latest_data[asset_id]["bid"] = best_bid
-            except ValueError:
-                self.latest_data[asset_id]["bid"] = 0.0
+                self.latest_data[asset_id]["bid"] = max([float(bid["price"]) for bid in bids if float(bid["size"]) > 0])
+            except: pass
             
-        # Emit event for the specific asset
+        # Emit event
         event = OrderBookEvent(
             asset_id=asset_id, 
             ask=self.latest_data[asset_id]["ask"], 
@@ -135,5 +129,4 @@ class PolyWebsocketFeed:
         )
         try:
             self.queue.put_nowait(event)
-        except asyncio.QueueFull:
-            pass
+        except: pass
