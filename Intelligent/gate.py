@@ -109,6 +109,15 @@ class IntelligentGate:
             decision = "SKIP"
             executor_msg = f"[Veto] ML Statistical Warning: Score {ml_score:.2f} too low."
 
+        # Calculate dynamic_target_adj
+        dynamic_adj = 0.0
+        if decision == "ENTER":
+            # If strong BULL or BEAR, we adjust the target
+            if p_up > 0.5 and confidence > 0.75 and convergence_score > 0.70:
+                dynamic_adj = -0.02
+            elif p_up < 0.5 and confidence > 0.75:
+                dynamic_adj = -0.02
+
         # 6. Record to Memory (Interface Contract Fields - Section 2.1)
         record_data = {
             "window_id": window_id,
@@ -118,7 +127,7 @@ class IntelligentGate:
             "p_down": p_down,
             "convergence_score": convergence_score,
             "news_impact": 0.0, # News Agent placeholder
-            "dynamic_target_adj": 0.0,
+            "dynamic_target_adj": dynamic_adj,
             "gate_decision": decision,
             "gate": "enable" if decision == "ENTER" else "disable",
             "generated_at": datetime.utcnow().isoformat(),
@@ -131,7 +140,7 @@ class IntelligentGate:
         # 7. Notify Telegram (Premium Format)
         await self.notify_telegram_premium(record_data)
         
-        return decision, 0.0
+        return decision, dynamic_adj
 
     async def notify_telegram_premium(self, record):
         # Using raw emojis for better compatibility
@@ -156,6 +165,6 @@ class IntelligentGate:
             try:
                 url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
                 payload = {"chat_id": chat_id, "text": message}
-                requests.post(url, json=payload, timeout=10)
+                await asyncio.to_thread(requests.post, url, json=payload, timeout=10)
             except Exception as e:
                 logger.error(f"Telegram Notify Failed: {e}")

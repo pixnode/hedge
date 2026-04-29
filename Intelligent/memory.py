@@ -47,6 +47,7 @@ class PoolMemory:
                 ats_down_entry REAL,
                 outcome TEXT,
                 model_correct BOOLEAN,
+                outcome_timestamp DATETIME,
                 
                 -- Snapshots
                 features_snapshot TEXT, -- JSON string of 12 features
@@ -118,7 +119,7 @@ class PoolMemory:
             sql = """
                 UPDATE window_records 
                 SET ats_status = ?, ats_pnl = ?, ats_up_entry = ?, 
-                    ats_down_entry = ?, outcome = ?, model_correct = ?
+                    ats_down_entry = ?, outcome = ?, model_correct = ?, outcome_timestamp = ?
                 WHERE window_id = ?
             """
             cursor.execute(sql, (
@@ -128,6 +129,7 @@ class PoolMemory:
                 outcome_data.get("ats_down_entry"),
                 outcome_data.get("outcome"),
                 model_correct,
+                datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 window_id
             ))
             self.conn.commit()
