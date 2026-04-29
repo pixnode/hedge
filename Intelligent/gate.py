@@ -74,7 +74,7 @@ class IntelligentGate:
         
         # 3. Get AI Reasoning Layer
         print(f"DEBUG: Context sent to AI: {json.dumps(context)}")
-        ai_analysis = self.ai.analyze_market_context(context)
+        ai_analysis = await self.ai.analyze_market_context(context)
         confidence = ai_analysis.get("confidence", 0.5)
         decision = ai_analysis.get("decision", "WAIT")
         ai_thought = ai_analysis.get("reasoning", "")

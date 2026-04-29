@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+import asyncio
 
 logger = logging.getLogger("intelligent.openrouter")
 
@@ -26,7 +27,7 @@ class OpenRouterAgent:
                         config[k] = v
         return config
 
-    def ask_ai(self, prompt: str):
+    async def ask_ai(self, prompt: str):
         """General purpose AI query."""
         if not self.api_key:
             return {"error": "API Key Missing"}
@@ -52,7 +53,7 @@ class OpenRouterAgent:
             }
 
             print(f"DEBUG: AI is thinking (Model: {self.model})...")
-            response = requests.post(self.url, headers=headers, json=payload, timeout=90)
+            response = await asyncio.to_thread(requests.post, self.url, headers=headers, json=payload, timeout=90)
             result = response.json()
             
             if 'choices' not in result:
@@ -76,15 +77,15 @@ class OpenRouterAgent:
             except json.JSONDecodeError as je:
                 # Attempt last-resort repair for common "unterminated string" or truncated JSON
                 if "Unterminated string" in str(je) or "Expecting value" in str(je):
-                    # Try to force-close any open strings or brackets
                     repaired = clean_json.strip()
-                    if not repaired.endswith("}"): repaired += '"}' if '"' in repaired else "}"
+                    if not repaired.endswith("}"): 
+                        repaired += '"}' if repaired.endswith('"') else '}'
                     try:
                         return json.loads(repaired)
                     except:
                         pass
                 
-                logger.error(f"AI JSON Parse Failed: {je} | Raw Snippet: {clean_json[:100]}")
+                logger.warning(f"AI JSON Parse Failed. Using fallback. Error: {je}")
                 # Return a safe fallback based on keywords if JSON fails
                 return {
                     "confidence": 0.5,
@@ -96,7 +97,7 @@ class OpenRouterAgent:
             logger.error(f"AI Query Failed: {e}")
             return {"error": str(e)}
 
-    def analyze_market_context(self, context_data: dict):
+    async def analyze_market_context(self, context_data: dict):
         prompt = f"""
         Analyze this BTC Polymarket context:
         - Binance CVD: {context_data.get('cvd')}
@@ -111,4 +112,4 @@ class OpenRouterAgent:
             "reasoning": "A concise 1-sentence explanation of the primary driver."
         }}
         """
-        return self.ask_ai(prompt)
+        return await self.ask_ai(prompt)
