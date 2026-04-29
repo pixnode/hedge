@@ -118,16 +118,16 @@ class IntelligentGate:
 
     async def notify_telegram_record(self, record, signal_label):
         message = (
-            f"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-            f"\ud83e\udde0 [V3 GATE] Decision: {record['gate_decision']}\n"
-            f"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-            f"🆔 Window: {record['window_id']}\n"
-            f"\U0001f4ca Confidence: {record['confidence']:.2f}\n"
-            f"\U0001f517 On-Chain: {record.get('onchain_whale_sentiment', 0.0):.2f}\n"
-            f"\U0001f4c8 Bullpen Vol: {record['bullpen_sentiment']:.2f}\n"
-            f"\U0001f4f0 Signal: {signal_label}\n"
-            f"\U0001f4ac AI: {record['llm_reasoning']}\n"
-            f"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501"
+            f"━━━━━━━━━━━━━━━\n"
+            f" [V3 GATE] Decision: {record['gate_decision']}\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"ID Window: {record['window_id']}\n"
+            f"Confidence: {record['confidence']:.2f}\n"
+            f"On-Chain: {record.get('onchain_whale_sentiment', 0.0):.2f}\n"
+            f"Bullpen Vol: {record['bullpen_sentiment']:.2f}\n"
+            f"Signal: {signal_label}\n"
+            f"AI: {record['llm_reasoning']}\n"
+            f"━━━━━━━━━━━━━━━"
         )
         print(message)
         
